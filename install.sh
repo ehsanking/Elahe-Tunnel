@@ -250,6 +250,16 @@ if [ -f "internal/tunnel/server.go" ]; then
     sed -i '/^[[:space:]]*"context"$/d' internal/tunnel/server.go
 fi
 
+# 6. Fix cmd/root.go (Syntax error due to backticks in ASCII art)
+if [ -f "cmd/root.go" ]; then
+    # The ASCII art contains backticks which break the Go string literal.
+    # We replace the multi-line Long description with a simple string.
+    # 1. Insert the new safe line before the broken block
+    sed -i '/Long: `/i \	Long: "Elahe Tunnel",' cmd/root.go
+    # 2. Delete the broken block (from Long: ` to `,)
+    sed -i '/Long: `/,/`,/d' cmd/root.go
+fi
+
 echo -e " ${GREEN}OK${NC}"
 # ---------------------------------
 
