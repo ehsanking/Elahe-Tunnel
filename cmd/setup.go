@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ehsanking/search-tunnel/internal/config"
-	"github.com/ehsanking/search-tunnel/internal/crypto"
+	"github.com/ehsanking/elahe-tunnel/internal/config"
+	"github.com/ehsanking/elahe-tunnel/internal/crypto"
 	"github.com/spf13/cobra"
 )
 

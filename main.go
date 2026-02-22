@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/ehsanking/search-tunnel/cmd"
+	"github.com/ehsanking/elahe-tunnel/cmd"
 )
 
 func main() {

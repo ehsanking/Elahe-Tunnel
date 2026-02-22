@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ehsanking/search-tunnel/internal/config"
-	"github.com/ehsanking/search-tunnel/internal/tunnel"
+	"github.com/ehsanking/elahe-tunnel/internal/config"
+	"github.com/ehsanking/elahe-tunnel/internal/tunnel"
 	"github.com/spf13/cobra"
 )
 

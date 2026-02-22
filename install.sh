@@ -36,9 +36,18 @@ else
     fi
 fi
 
-# 2. Install Elahe Tunnel
-echo "Compiling and installing Elahe Tunnel..."
-go install github.com/ehsanking/search-tunnel@latest
+# 2. Setup Go environment
+# This ensures the 'go' command and its bin directory are available in the current script session.
+if [ -d "/usr/local/go/bin" ]; then
+    export PATH=$PATH:/usr/local/go/bin
+fi
+if command_exists go; then
+    export PATH=$PATH:$(go env GOPATH)/bin
+fi
+
+# 3. Install Elahe Tunnel
+echo "Compiling and installing Elahe Tunnel... (This may take a moment depending on your network)"
+go install github.com/ehsanking/elahe-tunnel@latest
 
 # 3. Interactive Setup
 echo ""

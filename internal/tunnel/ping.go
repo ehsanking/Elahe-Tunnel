@@ -5,8 +5,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/ehsanking/search-tunnel/internal/crypto"
-	"github.com/ehsanking/search-tunnel/internal/masquerade"
+	"github.com/ehsanking/elahe-tunnel/internal/crypto"
+	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
 )
 
 const pingMessage = "SEARCH_TUNNEL_PING"

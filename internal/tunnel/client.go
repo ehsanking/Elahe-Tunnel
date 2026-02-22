@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ehsanking/search-tunnel/internal/config"
-	"github.com/ehsanking/search-tunnel/internal/crypto"
-	"github.com/ehsanking/search-tunnel/internal/logger"
-	"github.com/ehsanking/search-tunnel/internal/masquerade"
+	"github.com/ehsanking/elahe-tunnel/internal/config"
+	"github.com/ehsanking/elahe-tunnel/internal/crypto"
+	"github.com/ehsanking/elahe-tunnel/internal/logger"
+	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
 	"github.com/google/uuid"
 	"encoding/json"
 	"os"
@@ -125,7 +125,7 @@ func RunClient(cfg *config.Config) error {
 	}
 }
 
-const socketPath = "/tmp/search-tunnel.sock"
+const socketPath = "/tmp/elahe-tunnel.sock"
 
 // runStatusServer starts a server on a Unix domain socket to provide status updates.
 func runStatusServer(cfg *config.Config) {

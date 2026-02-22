@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ehsanking/search-tunnel/internal/logger"
+	"github.com/ehsanking/elahe-tunnel/internal/logger"
 )
 
 func init() {
@@ -46,7 +46,7 @@ func WrapInHttpRequest(data []byte, host string) (*http.Request, error) {
 		logger.Info.Println("Masquerading as POST request")
 		// --- Create POST request ---
 		form := url.Values{}
-		form.Add("q", "search-tunnel-payload") // A decoy query
+		form.Add("q", "elahe-tunnel-payload") // A decoy query
 		form.Add("oq", encodedData)            // Hide data in a less obvious param
 		body := strings.NewReader(form.Encode())
 
@@ -110,7 +110,7 @@ const RealisticGoogleSearchHTML = `<!DOCTYPE html><html lang="en"><head><meta ch
 
 // WrapInJsonResponse wraps data in a fake JSON API response.
 func WrapInJsonResponse(data []byte) *http.Response {
-	jsonBody := fmt.Sprintf(`{"status":"ok","data":{"results":["search-tunnel-payload"],"session_id":"%s"}}`, base64.URLEncoding.EncodeToString(data))
+	jsonBody := fmt.Sprintf(`{"status":"ok","data":{"results":["elahe-tunnel-payload"],"session_id":"%s"}}`, base64.URLEncoding.EncodeToString(data))
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),

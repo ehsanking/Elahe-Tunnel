@@ -1,4 +1,4 @@
-module github.com/ehsanking/search-tunnel
+module github.com/ehsanking/elahe-tunnel
 
 go 1.22
 

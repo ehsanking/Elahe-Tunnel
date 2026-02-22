@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/ehsanking/search-tunnel/internal/config"
-	"github.com/ehsanking/search-tunnel/internal/crypto"
-	"github.com/ehsanking/search-tunnel/internal/masquerade"
+	"github.com/ehsanking/elahe-tunnel/internal/config"
+	"github.com/ehsanking/elahe-tunnel/internal/crypto"
+	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
 	"encoding/json"
 	"io"
 	"net"
@@ -36,7 +36,7 @@ var statusCmd = &cobra.Command{
 	},
 }
 
-const socketPath = "/tmp/search-tunnel.sock"
+const socketPath = "/tmp/elahe-tunnel.sock"
 
 func checkConnectionStatus(cfg *config.Config) {
 	conn, err := net.Dial("unix", socketPath)
