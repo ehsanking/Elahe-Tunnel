@@ -1,4 +1,4 @@
-# Search Tunnel
+# Elahe Tunnel
 
 > A censorship circumvention tool that disguises network traffic as Google search packets.
 
@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Version](https://img.shields.io/badge/version-0.0.1-orange.svg)](/VERSION)
 
-**Search Tunnel** is an experimental tool designed to bypass sophisticated Deep Packet Inspection (DPI) systems by camouflaging data packets to look like legitimate Google search queries and results. It's built for scenarios where internet access is heavily restricted or monitored.
+**Elahe Tunnel** is an experimental tool designed to bypass sophisticated Deep Packet Inspection (DPI) systems by camouflaging data packets to look like legitimate Google search queries and results. It's built for scenarios where internet access is heavily restricted or monitored.
 
 ## 💡 How It Works
 
@@ -22,16 +22,11 @@ This masquerading technique aims to make the traffic pattern indistinguishable f
 
 ### Installation
 
-To install the `search-tunnel` CLI, you need to have Go (version 1.22+) installed on your system.
-
-Run the following command in your terminal:
+Run the following command in your terminal. This script will automatically check if Go is installed and, if not, attempt to install it for you before compiling the program.
 
 ```bash
-# This will download, compile, and install the binary to your GOPATH
-go install github.com/ehsanking/search-tunnel@latest
+bash <(curl -s -L https://raw.githubusercontent.com/ehsanking/search-tunnel/main/install.sh)
 ```
-
-Alternatively, you can download a pre-compiled binary for your operating system from the [GitHub Releases](https://github.com/ehsanking/search-tunnel/releases) page (once available).
 
 ### Usage
 
@@ -42,7 +37,7 @@ The setup process involves configuring the external server first, then the inter
 Run the `setup` command in `external` mode. This will generate a secure connection key that you'll need for the internal server.
 
 ```bash
-search-tunnel setup external
+elahe-tunnel setup external
 ```
 
 **Example Output:**
@@ -64,7 +59,7 @@ Save this key. You will need it to connect your internal server.
 Run the `setup` command in `internal` mode. The tool will prompt you to enter the IP address of your external server and the connection key you generated in the previous step.
 
 ```bash
-search-tunnel setup internal
+elahe-tunnel setup internal
 ```
 
 **Example Interaction:**
@@ -81,7 +76,7 @@ Enter the connection key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 You can check the status of the connection at any time on either server.
 
 ```bash
-search-tunnel status
+elahe-tunnel status
 ```
 
 **Example Output:**
@@ -92,9 +87,9 @@ Status: Active
 
 ## Commands
 
-- `search-tunnel setup [internal | external]`: Configure the server node.
-- `search-tunnel status`: Check the tunnel's connection status.
-- `search-tunnel version`: Show the current version of the tool.
+- `elahe-tunnel setup [internal | external]`: Configure the server node.
+- `elahe-tunnel status`: Check the tunnel's connection status.
+- `elahe-tunnel version`: Show the current version of the tool.
 
 ## 🤝 Contributing
 
