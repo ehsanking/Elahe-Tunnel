@@ -1,0 +1,5 @@
+{
+  "name": "Search Tunnel",
+  "description": "A censorship circumvention tool that tunnels traffic disguised as Google search packets.",
+  "requestFramePermissions": []
+}
