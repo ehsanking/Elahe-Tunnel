@@ -20,51 +20,27 @@ This masquerading technique aims to make the traffic pattern indistinguishable f
 
 ## 🚀 Getting Started
 
-### Installation Guide
+### Installation
 
-Due to potential network restrictions that can interfere with direct installation on servers, the recommended method is to compile the application on your local machine and then transfer the binary to your server.
+You can install and configure Elahe Tunnel with a single command. This script automatically handles dependencies, Go installation, and setup.
 
-**Step 1: On Your Local Machine (with Go 1.24+ installed)**
+```bash
+bash <(curl -s -L https://raw.githubusercontent.com/ehsanking/elahe-tunnel/main/install.sh)
+```
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/ehsanking/elahe-tunnel.git
-    cd elahe-tunnel
-    ```
-
-2.  **Run the build script:**
-    This script will compile the application for a standard Linux server (amd64 architecture).
-    ```bash
-    bash build.sh
-    ```
-
-3.  **Transfer the binary to your server:**
-    After a successful build, a binary file named `elahe-tunnel` will be created in a `release` directory. Use `scp` or any other file transfer method to upload it to your server.
-    ```bash
-    # Replace user@your_server_ip with your server's details
-    scp release/elahe-tunnel user@your_server_ip:~
-    ```
-
-**Step 2: On Your Server**
-
-1.  **Make the binary executable:**
-    ```bash
-    chmod +x ~/elahe-tunnel
-    ```
-
-2.  **Run the interactive setup:**
-    The application will guide you through configuring it as an internal or external server.
-    ```bash
-    ./elahe-tunnel setup
-    ```
+The script will:
+1.  Check and install necessary dependencies (Go, unzip, curl).
+2.  Download the latest source code.
+3.  Compile the application.
+4.  Launch the interactive setup wizard.
 
 ### Usage
 
-Once installed and configured, you can start the tunnel with:
+After installation, you can manage the tunnel using the `elahe-tunnel` command:
 
-```bash
-elahe-tunnel run
-```
+*   **Run the tunnel:** `elahe-tunnel run`
+*   **Re-configure:** `elahe-tunnel setup`
+*   **Check status:** `elahe-tunnel status`
 
 #### Step 3: Check the Tunnel Status
 
