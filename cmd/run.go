@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var dnsProxyEnabled bool
+
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run the search tunnel client or server.",
@@ -23,6 +25,7 @@ var runCmd = &cobra.Command{
 		switch cfg.NodeType {
 		case "internal":
 			fmt.Println("Starting tunnel in internal (client) mode...")
+			cfg.DnsProxyEnabled = dnsProxyEnabled
 			if err := tunnel.RunClient(cfg); err != nil {
 				fmt.Println("Client error:", err)
 				os.Exit(1)
@@ -41,5 +44,6 @@ var runCmd = &cobra.Command{
 }
 
 func init() {
+	runCmd.Flags().BoolVar(&dnsProxyEnabled, "dns", false, "Enable the local DNS proxy to tunnel DNS queries")
 	rootCmd.AddCommand(runCmd)
 }

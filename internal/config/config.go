@@ -12,6 +12,7 @@ type Config struct {
 	NodeType      string `json:"node_type"`
 	ConnectionKey string `json:"connection_key"` // Stored as base64
 	RemoteHost    string `json:"remote_host,omitempty"`
+	DnsProxyEnabled bool `json:"dns_proxy_enabled,omitempty"`
 }
 
 // SaveConfig saves the given configuration to the config file.

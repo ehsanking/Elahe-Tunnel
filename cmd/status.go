@@ -51,12 +51,14 @@ func checkConnectionStatus(cfg *config.Config) {
 	req.URL.Host = cfg.RemoteHost
 	req.URL.Path = "/favicon.ico"
 
+	start := time.Now()
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		fmt.Println("  Status: Inactive (Connection Error)")
 		return
 	}
 	defer resp.Body.Close()
+	latency := time.Since(start)
 
 	encryptedPong, err := masquerade.UnwrapFromHttpResponse(resp)
 	if err != nil {
@@ -70,7 +72,8 @@ func checkConnectionStatus(cfg *config.Config) {
 		return
 	}
 
-	fmt.Println("  Status: Active")
+	fmt.Printf("  Status: Active\n")
+	fmt.Printf("  Latency: %s\n", latency.Round(time.Millisecond))
 }
 
 func init() {

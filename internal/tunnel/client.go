@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -20,37 +21,149 @@ func RunClient(cfg *config.Config) error {
 		return fmt.Errorf("invalid connection key: %w", err)
 	}
 
-	fmt.Println("Internal client listening on localhost:9090")
+	// Create a custom dialer to resolve the remote host through the tunnel itself
+	netDialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
+	// Create a shared HTTP client with a custom transport
+	tr := &http.Transport{
+		// We still need to skip verification for the self-signed cert
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		// Use our custom dialer
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			// If we're dialing the remote host, we need to resolve it securely
+			if addr == cfg.RemoteHost+":443" {
+				// This is a simplified example. A real implementation would need
+				// to handle the bootstrapping problem of resolving the initial IP.
+				// For now, we assume the initial IP is provided or resolved once insecurely.
+				return netDialer.DialContext(ctx, network, addr)
+			}
+			// For all other addresses, use the default dialer
+			return netDialer.DialContext(ctx, network, addr)
+		},
+	}
+	httpClient := &http.Client{Transport: tr, Timeout: 15 * time.Second}
+
+	// Perform an initial, insecure DNS lookup for the remote host
+	ips, err := net.LookupIP(cfg.RemoteHost)
+	if err != nil || len(ips) == 0 {
+		return fmt.Errorf("could not resolve remote host: %w", err)
+	}
+	remoteIP := ips[0].String()
+	fmt.Printf("Resolved remote host %s to %s\n", cfg.RemoteHost, remoteIP)
+
+	// Start the connection manager in the background
+	go manageConnection(httpClient, cfg.RemoteHost, remoteIP, key)
+
+	// If enabled, start the DNS proxy
+	if cfg.DnsProxyEnabled {
+		tunnelQuery := func(query []byte) ([]byte, error) {
+			encryptedQuery, err := crypto.Encrypt(query, key)
+			if err != nil {
+				return nil, fmt.Errorf("dns query encryption failed: %w", err)
+			}
+
+			req, err := masquerade.WrapInHttpRequest(encryptedQuery, cfg.RemoteHost)
+			if err != nil {
+				return nil, fmt.Errorf("dns request wrapping failed: %w", err)
+			}
+			req.URL.Path = "/dns-query"
+
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				return nil, fmt.Errorf("dns http request failed: %w", err)
+			}
+			defer resp.Body.Close()
+
+			encryptedResp, err := masquerade.UnwrapFromHttpResponse(resp)
+			if err != nil {
+				return nil, fmt.Errorf("dns response unwrap failed: %w", err)
+			}
+
+			return crypto.Decrypt(encryptedResp, key)
+		}
+		go RunDnsProxy(53, tunnelQuery)
+	}
+
+	fmt.Println("Internal TCP proxy listening on localhost:9090")
 	localListener, err := net.Listen("tcp", "localhost:9090")
 	if err != nil {
 		return fmt.Errorf("failed to listen on local port 9090: %w", err)
 	}
 	defer localListener.Close()
 
-	// Create a custom transport to skip TLS verification
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	httpClient := &http.Client{Transport: tr}
-
 	for {
 		localConn, err := localListener.Accept()
 		if err != nil {
-			fmt.Println("Failed to accept local connection:", err)
+			fmt.Printf("Failed to accept local connection: %v\n", err)
 			continue
 		}
-
-		go handleClientConnection(localConn, httpClient, cfg.RemoteHost, key)
+		go handleClientConnection(localConn, httpClient, remoteIP, key)
 	}
 }
 
-const (
-	maxRetries    = 5
-	baseBackoff   = 1 * time.Second
-	maxBackoff    = 30 * time.Second
-)
+// manageConnection runs in the background, periodically checking the connection
+// and attempting to reconnect with exponential backoff if it fails.
+func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte) {
+	const (
+		pingInterval  = 1 * time.Minute
+		maxRetries    = 10
+		baseBackoff   = 2 * time.Second
+		maxBackoff    = 5 * time.Minute
+	)
 
-func handleClientConnection(localConn net.Conn, httpClient *http.Client, host string, key []byte) {
+	ticker := time.NewTicker(pingInterval)
+	defer ticker.Stop()
+
+	for {
+		pingData, _ := crypto.Encrypt([]byte("SEARCH_TUNNEL_PING"), key)
+		req, _ := masquerade.WrapInHttpRequest(pingData, host) // Masquerade with the original hostname
+		req.URL.Scheme = "https"
+		req.URL.Host = remoteIP // Connect to the resolved IP
+		req.URL.Path = "/favicon.ico"
+
+		var err error
+		for i := 0; i < maxRetries; i++ {
+			resp, err := httpClient.Do(req)
+			if err == nil {
+				encryptedPong, err := masquerade.UnwrapFromHttpResponse(resp)
+				resp.Body.Close()
+				if err != nil {
+					err = fmt.Errorf("invalid pong response: %w", err)
+					continue // Retry on invalid response
+				}
+
+				pong, err := crypto.Decrypt(encryptedPong, key)
+				if err != nil || string(pong) != "SEARCH_TUNNEL_PONG" {
+					err = fmt.Errorf("pong authentication failed")
+					continue // Retry on auth failure
+				}
+
+				fmt.Println("[Health Check] Connection OK.")
+				break // Success
+			}
+
+			if i == maxRetries-1 {
+				fmt.Printf("[Health Check] Connection failed after %d attempts: %v\n", maxRetries, err)
+				// In a real app, you might want to exit or take other action here
+				break
+			}
+
+			backoff := time.Duration(int64(baseBackoff) * (1 << i))
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			fmt.Printf("[Health Check] Connection failed: %v. Retrying in %v...\n", err, backoff)
+			time.Sleep(backoff)
+		}
+
+		<-ticker.C
+	}
+}
+
+func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteIP string, key []byte) {
 	defer localConn.Close()
 
 	// Read data from the local application
@@ -79,24 +192,11 @@ func handleClientConnection(localConn net.Conn, httpClient *http.Client, host st
 	}
 	// Override the request URL to point to the actual server IP
 	req.URL.Scheme = "https"
-	req.URL.Host = host
+	req.URL.Host = remoteIP
 
-	var resp *http.Response
-	for i := 0; i < maxRetries; i++ {
-		resp, err = httpClient.Do(req)
-		if err == nil {
-			break // Success
-		}
-		backoff := time.Duration(int64(baseBackoff) * (1 << i)) 
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
-		fmt.Printf("Failed to send HTTP request (attempt %d/%d): %v. Retrying in %v...\n", i+1, maxRetries, err, backoff)
-		time.Sleep(backoff)
-	}
-
+	resp, err := httpClient.Do(req)
 	if err != nil {
-		fmt.Printf("Failed to send HTTP request after %d attempts: %v\n", maxRetries, err)
+		fmt.Printf("Failed to send HTTP request: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
