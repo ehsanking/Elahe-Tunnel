@@ -260,6 +260,19 @@ if [ -f "cmd/root.go" ]; then
     sed -i '/Long: `/,/`,/d' cmd/root.go
 fi
 
+# 7. Fix cmd/status.go (Missing cobra import, unused imports)
+if [ -f "cmd/status.go" ]; then
+    # Add missing cobra import
+    sed -i '/import (/a \	"github.com/spf13/cobra"' cmd/status.go
+    
+    # Remove unused imports
+    sed -i '/"crypto\/tls"/d' cmd/status.go
+    sed -i '/"net\/http"/d' cmd/status.go
+    sed -i '/"time"/d' cmd/status.go
+    sed -i '/"github.com\/ehsanking\/elahe-tunnel\/internal\/crypto"/d' cmd/status.go
+    sed -i '/"github.com\/ehsanking\/elahe-tunnel\/internal\/masquerade"/d' cmd/status.go
+fi
+
 echo -e " ${GREEN}OK${NC}"
 # ---------------------------------
 
