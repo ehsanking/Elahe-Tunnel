@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/ehsanking/search-tunnel/internal/config"
-	"github.com/spf13/cobra"
+	"github.com/ehsanking/search-tunnel/internal/crypto"
+	"github.com/ehsanking/search-tunnel/internal/masquerade"
 )
 
 var statusCmd = &cobra.Command{
@@ -22,9 +26,51 @@ var statusCmd = &cobra.Command{
 		fmt.Printf("  Node Type: %s\n", cfg.NodeType)
 		if cfg.NodeType == "internal" {
 			fmt.Printf("  Remote Host: %s\n", cfg.RemoteHost)
+			checkConnectionStatus(cfg)
+		} else {
+			fmt.Println("  Status: Listening (External node)")
 		}
-		fmt.Println("  Status: Inactive (Live check not implemented yet)")
 	},
+}
+
+func checkConnectionStatus(cfg *config.Config) {
+	key, err := crypto.DecodeBase64Key(cfg.ConnectionKey)
+	if err != nil {
+		fmt.Println("  Status: Inactive (Invalid Key)")
+		return
+	}
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	httpClient := &http.Client{Transport: tr, Timeout: 10 * time.Second}
+
+	pingData, _ := crypto.Encrypt([]byte("SEARCH_TUNNEL_PING"), key)
+	req, _ := masquerade.WrapInHttpRequest(pingData, "www.google.com")
+	req.URL.Scheme = "https"
+	req.URL.Host = cfg.RemoteHost
+	req.URL.Path = "/favicon.ico"
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		fmt.Println("  Status: Inactive (Connection Error)")
+		return
+	}
+	defer resp.Body.Close()
+
+	encryptedPong, err := masquerade.UnwrapFromHttpResponse(resp)
+	if err != nil {
+		fmt.Println("  Status: Inactive (Invalid Response)")
+		return
+	}
+
+	pong, err := crypto.Decrypt(encryptedPong, key)
+	if err != nil || string(pong) != "SEARCH_TUNNEL_PONG" {
+		fmt.Println("  Status: Inactive (Authentication Failed)")
+		return
+	}
+
+	fmt.Println("  Status: Active")
 }
 
 func init() {

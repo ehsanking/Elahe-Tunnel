@@ -19,31 +19,40 @@ func RunServer(cfg *config.Config) error {
 	}
 
 	http.HandleFunc("/search", handleSearchRequest(key))
+	http.HandleFunc("/favicon.ico", handlePingRequest(key)) // Discreet endpoint for status check
 
-	fmt.Println("External HTTP server listening on :80") // Listening on port 80 for HTTP
-	return http.ListenAndServe(":80", nil)
+	fmt.Println("External HTTPS server listening on :443") // Listening on port 443 for HTTPS
+	return http.ListenAndServeTLS(":443", "cert.pem", "key.pem", nil)
 }
 
 func handleSearchRequest(key []byte) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		clientAddr := r.RemoteAddr
+
 		// Unwrap the request from the client
 		encryptedData, err := masquerade.UnwrapFromHttpRequest(r)
 		if err != nil {
-			http.Error(w, "Invalid request format", http.StatusBadRequest)
+			msg := fmt.Sprintf("[%s] Invalid request format: %v", clientAddr, err)
+			http.Error(w, msg, http.StatusBadRequest)
+			fmt.Println(msg)
 			return
 		}
 
 		// Decrypt the data
 		decryptedData, err := crypto.Decrypt(encryptedData, key)
 		if err != nil {
-			http.Error(w, "Decryption failed", http.StatusForbidden)
+			msg := fmt.Sprintf("[%s] Decryption failed: %v", clientAddr, err)
+			http.Error(w, "Forbidden", http.StatusForbidden) // Don't leak crypto details
+			fmt.Println(msg)
 			return
 		}
 
 		// Connect to the target service (e.g., tcpbin for echo testing)
 		targetConn, err := net.Dial("tcp", "tcpbin.com:4242")
 		if err != nil {
-			http.Error(w, "Failed to connect to target service", http.StatusInternalServerError)
+			msg := fmt.Sprintf("[%s] Failed to connect to target service: %v", clientAddr, err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			fmt.Println(msg)
 			return
 		}
 		defer targetConn.Close()
@@ -51,21 +60,27 @@ func handleSearchRequest(key []byte) http.HandlerFunc {
 		// Write the decrypted data to the target
 		_, err = targetConn.Write(decryptedData)
 		if err != nil {
-			http.Error(w, "Failed to write to target service", http.StatusInternalServerError)
+			msg := fmt.Sprintf("[%s] Failed to write to target service: %v", clientAddr, err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			fmt.Println(msg)
 			return
 		}
 
 		// Read the response from the target
 		respData, err := io.ReadAll(targetConn)
 		if err != nil {
-			http.Error(w, "Failed to read from target service", http.StatusInternalServerError)
+			msg := fmt.Sprintf("[%s] Failed to read from target service: %v", clientAddr, err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			fmt.Println(msg)
 			return
 		}
 
 		// Encrypt the response
 		encryptedResp, err := crypto.Encrypt(respData, key)
 		if err != nil {
-			http.Error(w, "Encryption failed", http.StatusInternalServerError)
+			msg := fmt.Sprintf("[%s] Encryption failed: %v", clientAddr, err)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			fmt.Println(msg)
 			return
 		}
 
