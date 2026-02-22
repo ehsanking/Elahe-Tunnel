@@ -185,6 +185,14 @@ echo -n "Compiling application..."
 # Enter directory
 cd "$SOURCE_DIR"
 
+# --- HOTFIX: Patch pool.go bug ---
+# The source code on GitHub has a bug (undefined: err). We fix it here before compiling.
+if [ -f "internal/pool/pool.go" ]; then
+    sed -i 's/if conn.SetReadDeadline(time.Now().Add(1 \* time.Millisecond)); err != nil {/if err := conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond)); err != nil {/' internal/pool/pool.go
+    sed -i 's/if conn.SetReadDeadline(time.Time{}); err != nil {/if err := conn.SetReadDeadline(time.Time{}); err != nil {/' internal/pool/pool.go
+fi
+# ---------------------------------
+
 (
     # Use goproxy.io to bypass potential restrictions for modules
     export GOPROXY=https://goproxy.io,direct
