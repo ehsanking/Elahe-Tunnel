@@ -1,9 +1,13 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/ehsanking/search-tunnel/internal/config"
+	"github.com/ehsanking/search-tunnel/internal/crypto"
 	"github.com/spf13/cobra"
 )
 
@@ -16,16 +20,69 @@ var setupCmd = &cobra.Command{
 		setupType := args[0]
 		switch setupType {
 		case "internal":
-			fmt.Println("Setting up as an internal (Iran) server...")
-			// TODO: Implement internal server setup logic
+			setupInternal()
 		case "external":
-			fmt.Println("Setting up as an external (foreign) server...")
-			// TODO: Implement external server setup logic
+			setupExternal()
 		default:
 			fmt.Printf("Error: Invalid setup type '%s'. Please use 'internal' or 'external'.\n", setupType)
 			os.Exit(1)
 		}
 	},
+}
+
+func setupExternal() {
+	fmt.Println("Setting up as an external (foreign) server...")
+
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		fmt.Println("Error generating key:", err)
+		os.Exit(1)
+	}
+
+	encodedKey := crypto.EncodeKeyToBase64(key)
+
+	cfg := &config.Config{
+		NodeType:      "external",
+		ConnectionKey: encodedKey,
+	}
+
+	if err := config.SaveConfig(cfg); err != nil {
+		fmt.Println("Error saving configuration:", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("✅ External server setup complete.")
+	fmt.Println("\n🔑 Your connection key is:")
+	fmt.Printf("\n    %s\n\n", encodedKey)
+	fmt.Println("Save this key. You will need it to connect your internal server.")
+}
+
+func setupInternal() {
+	fmt.Println("Setting up as an internal (Iran) server...")
+
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Print("Enter the IP address of your external server: ")
+	host, _ := reader.ReadString('\n')
+	host = strings.TrimSpace(host)
+
+	fmt.Print("Enter the connection key: ")
+	key, _ := reader.ReadString('\n')
+	key = strings.TrimSpace(key)
+
+	cfg := &config.Config{
+		NodeType:      "internal",
+		ConnectionKey: key,
+		RemoteHost:    host,
+	}
+
+	if err := config.SaveConfig(cfg); err != nil {
+		fmt.Println("Error saving configuration:", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("\n✅ Internal server setup complete. The tunnel will now attempt to connect.")
+	// TODO: Add connection logic
 }
 
 func init() {
