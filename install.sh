@@ -25,12 +25,12 @@ echo -e "${GREEN}=========================================${NC}"
 echo -e "${GREEN}   Elahe Tunnel Single-Line Installer    ${NC}"
 echo -e "${GREEN}=========================================${NC}"
 
-# 1. Install Dependencies (unzip, curl)
+# 1. Install Dependencies (unzip, curl, file)
 echo -n "Checking dependencies..."
-if ! command -v unzip &> /dev/null || ! command -v curl &> /dev/null; then
-    echo -e "\n${YELLOW}Installing unzip and curl...${NC}"
+if ! command -v unzip &> /dev/null || ! command -v curl &> /dev/null || ! command -v file &> /dev/null; then
+    echo -e "\n${YELLOW}Installing unzip, curl, and file...${NC}"
     (
-        apt-get update -qq && apt-get install -y -qq unzip curl
+        apt-get update -qq && apt-get install -y -qq unzip curl file
     ) &
     PID=$!
     spinner $PID
@@ -54,16 +54,12 @@ else
 fi
 
 if [ "$NEED_GO" = true ]; then
-    echo -e "\n${YELLOW}Installing Go 1.24+ (from Google Cloud Mirror)...${NC}"
+    echo -e "\n${YELLOW}Installing Go 1.24.0 (from Google Cloud Mirror)...${NC}"
     (
         rm -rf /usr/local/go
         
-        # Robust fetch of latest version
-        CURL_OPTS="-s -L -A 'Mozilla/5.0' --referer 'https://go.dev/'"
-        LATEST_VER=$(curl $CURL_OPTS "https://go.dev/VERSION?m=text" | awk '/^go/ {print $1; exit}' | tr -d '\r')
-        
-        # Fallback if fetch fails
-        if [ -z "$LATEST_VER" ]; then LATEST_VER="go1.24.0"; fi
+        # Hardcoded version to avoid network blocking on go.dev
+        LATEST_VER="go1.24.0"
         
         ARCH=$(uname -m)
         case $ARCH in
@@ -73,12 +69,17 @@ if [ "$NEED_GO" = true ]; then
         
         URL="https://storage.googleapis.com/golang/${LATEST_VER}.linux-${ARCH}.tar.gz"
         
-        curl $CURL_OPTS -o /tmp/go.tar.gz "$URL"
+        # Download with error visibility
+        if ! curl -L -A 'Mozilla/5.0' -o /tmp/go.tar.gz "$URL"; then
+            echo "Download failed!" >&2
+            exit 1
+        fi
         
         if file /tmp/go.tar.gz | grep -q 'gzip'; then
             tar -C /usr/local -xzf /tmp/go.tar.gz
             rm /tmp/go.tar.gz
         else
+            echo "Downloaded file is not a valid gzip archive." >&2
             exit 1
         fi
     ) &
@@ -88,7 +89,7 @@ if [ "$NEED_GO" = true ]; then
     wait $PID
     
     if [ $? -ne 0 ]; then
-        echo -e "${RED}Failed to install Go.${NC}"
+        echo -e "${RED}Failed to install Go. Check your internet connection.${NC}"
         exit 1
     fi
     
