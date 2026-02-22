@@ -229,62 +229,14 @@ if [ -f "internal/tunnel/server.go" ]; then
     # Fix pool.Put usage (replace with Close)
     sed -i 's/defer pool.Put(targetConn)/defer targetConn.Close()/' internal/tunnel/server.go
     
-    # Fix dtls.NewListener error (remove it and use standard listener or fix cast)
-    # The error was: cannot use udpConn (type *net.UDPConn) as net.Listener
-    # In newer pion/dtls, NewListener takes (net.PacketConn, *dtls.Config). *net.UDPConn implements PacketConn.
-    # The error suggests the compiler thinks it needs net.Listener. 
-    # We will try to force cast or just rely on the fact that it SHOULD work if imports are correct.
-    # However, to be safe, let's try to fix the import if it's wrong, or maybe the user's go.mod has an ancient version.
-    # Since we can't easily change go.mod versions here without network, we assume the code is right but maybe the interface check is strict.
-    # Actually, looking at the error again: "argument to dtls.NewListener".
-    # If we assume the library is correct, maybe we just need to ensure udpConn is treated as PacketConn.
-    # But wait, the error says "cannot use ... as net.Listener". This implies NewListener wants a net.Listener?
-    # That would be dtls.NewListener(inner net.Listener, config). That is for TCP/Stream wrapping.
-    # For UDP, we usually use dtls.NewListener with PacketConn.
-    # Let's assume the code is mostly right but maybe needs a slight tweak.
-    # Actually, let's just comment out the DTLS part if it's too broken, OR try to fix it.
-    # Given the complexity, let's try to fix the pool issue first which is the main blocker.
-    # For the DTLS error, let's try to ignore it for a moment? No, it won't compile.
-    # Let's look at the error again: "cannot use udpConn ... as net.Listener".
-    # This means the function signature is `func NewListener(parent net.Listener, config *Config)`.
-    # This signature exists in SOME versions of dtls for wrapping TCP.
-    # For UDP, we should use `dtls.Listen` or `dtls.NewListener` with PacketConn.
-    # If the library version installed expects Listener, we are passing UDPConn.
-    # Let's try to change `dtls.NewListener` to `dtls.Listen` which creates its own listener?
-    # No, `dtls.NewListener` in v2.2.4 (which was downloaded) takes `(parent net.PacketConn, config *Config)`.
-    # Wait, `net.UDPConn` implements `net.PacketConn`.
-    # Why did the error say "as net.Listener"?
-    # Maybe `dtls` package imported is NOT `pion/dtls/v2`?
-    # The log says: `go: found github.com/pion/dtls/v2 in github.com/pion/dtls/v2 v2.2.12`.
-    # So it IS v2.
-    # In v2, `NewListener` takes `(parent net.PacketConn, config *Config)`.
-    # So `udpConn` should work.
-    # UNLESS `udpConn` variable is somehow not `*net.UDPConn`?
-    # `udpConn, err := net.ListenUDP(...)` returns `*net.UDPConn`.
-    # This is very strange.
-    # Maybe the error message was misleading or I misread it.
-    # "cannot use udpConn ... as net.Listener ... (missing method Accept)"
-    # Ah, `net.Listener` has `Accept`. `net.PacketConn` does not.
-    # So `NewListener` IS expecting `net.Listener`.
-    # This implies `dtls.NewListener` in the installed version is the one for TCP wrapping.
-    # For UDP, we want `dtls.NewListener` that takes PacketConn?
-    # Actually, in pion/dtls v2, `NewListener` DOES take PacketConn.
-    # https://pkg.go.dev/github.com/pion/dtls/v2#NewListener
-    # `func NewListener(parent net.PacketConn, config *Config) (net.Listener, error)`
-    # So why does the compiler think it wants `net.Listener`?
-    # Maybe the `dtls` import in `server.go` is aliased or wrong?
-    # `import "github.com/pion/dtls/v2"` -> `dtls`.
-    # I will assume the environment is weird and try to comment out the DTLS section to at least get the HTTP part working, 
-    # OR I will try to fix it by using `dtls.Listen` directly if possible.
-    # `dtls.Listen("udp", udpAddr, config)`
-    # Let's replace the whole block with `dtls.Listen`.
+    # Fix dtls.NewListener error (replace with dtls.Listen)
+    # 1. Comment out net.ListenUDP (use // instead of #)
+    sed -i 's|udpConn, err := net.ListenUDP("udp", udpAddr)|// udpConn, err := net.ListenUDP("udp", udpAddr)|' internal/tunnel/server.go
     
-    sed -i 's/udpConn, err := net.ListenUDP("udp", udpAddr)/# udpConn, err := net.ListenUDP("udp", udpAddr)/' internal/tunnel/server.go
-    sed -i 's/if err != nil {/if err != nil { #/' internal/tunnel/server.go
-    sed -i 's/return fmt.Errorf("failed to listen on UDP port 443: %w", err)/# return fmt.Errorf("failed to listen on UDP port 443: %w", err)/' internal/tunnel/server.go
-    
-    # Replace NewListener with Listen
-    sed -i 's/dtlsListener, err := dtls.NewListener(udpConn, &dtls.Config{/dtlsListener, err := dtls.Listen("udp", udpAddr, \&dtls.Config{/' internal/tunnel/server.go
+    # 2. Replace NewListener with Listen
+    # We use | as delimiter to avoid escaping /
+    # We escape & as \& to prevent sed from treating it as "matched string"
+    sed -i 's|dtlsListener, err := dtls.NewListener(udpConn, &dtls.Config{|dtlsListener, err := dtls.Listen("udp", udpAddr, \&dtls.Config{|' internal/tunnel/server.go
 fi
 echo -e " ${GREEN}OK${NC}"
 # ---------------------------------
