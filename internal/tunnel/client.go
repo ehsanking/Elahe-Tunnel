@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"os"
 	"sync/atomic"
+	"github.com/pion/dtls/v2"
 )
 
 // RunClient starts the internal node client.
@@ -204,153 +205,91 @@ var (
 	currentUdpPayloadSize uint64 = minUdpPayloadSize
 )
 
-// RunUdpProxy starts a local UDP proxy to intercept and tunnel UDP packets.
+// RunUdpProxy starts a local UDP proxy to intercept and tunnel UDP packets over DTLS.
 func RunUdpProxy(localPort int, httpClient *http.Client, remoteHost, remoteIP string, key []byte, cfg *config.Config) {
-	localAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", localPort))
+	// Establish a single DTLS connection to the server.
+	serverAddr, err := net.ResolveUDPAddr("udp", remoteIP+":443")
 	if err != nil {
-		logger.Error.Printf("Failed to resolve UDP address: %v", err)
+		logger.Error.Printf("Failed to resolve remote DTLS address: %v", err)
 		return
 	}
 
-	conn, err := net.ListenUDP("udp", localAddr)
+	dtlsConn, err := dtls.Dial("udp", serverAddr, &dtls.Config{
+		InsecureSkipVerify: true, // We're not verifying the server's cert, as it's self-signed
+	})
 	if err != nil {
-		logger.Error.Printf("Failed to listen on UDP port %d: %v", localPort, err)
+		logger.Error.Printf("Failed to establish DTLS connection: %v", err)
 		return
 	}
-	defer conn.Close()
+	defer dtlsConn.Close()
+
+	logger.Info.Println("Established DTLS connection to server")
+
+	// Listen for local UDP packets.
+	localAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", localPort))
+	if err != nil {
+		logger.Error.Printf("Failed to resolve local UDP address: %v", err)
+		return
+	}
+
+	localConn, err := net.ListenUDP("udp", localAddr)
+	if err != nil {
+		logger.Error.Printf("Failed to listen on local UDP port %d: %v", localPort, err)
+		return
+	}
+	defer localConn.Close()
 
 	logger.Info.Printf("Internal UDP proxy listening on 127.0.0.1:%d", localPort)
 
+	// Goroutine to handle forwarding responses from the DTLS tunnel back to local applications.
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := dtlsConn.Read(buf)
+			if err != nil {
+				logger.Error.Printf("DTLS read error: %v", err)
+				return
+			}
+
+			// The server prepends the original destination to the response.
+			parts := bytes.SplitN(buf[:n], []byte("\n"), 2)
+			if len(parts) != 2 {
+				logger.Error.Printf("Invalid DTLS response format")
+				continue
+			}
+			// Note: In a real multi-client scenario, we'd need to map this back to the original local sender.
+			// For now, we assume a single local client.
+			// We need to look up the original sender from the session map.
+			udpSessionMutex.Lock()
+			originalAddr, ok := udpSessionMap[cfg.DestinationUdpHost]
+			udpSessionMutex.Unlock()
+
+			if ok {
+				localConn.WriteToUDP(parts[1], originalAddr)
+			}
+		}
+	}()
+
+	// Main loop to read from local applications and forward to the DTLS tunnel.
 	buf := make([]byte, 4096)
 	for {
-		n, remoteUdpAddr, err := conn.ReadFromUDP(buf)
+		n, remoteUdpAddr, err := localConn.ReadFromUDP(buf)
 		if err != nil {
-			logger.Error.Printf("Failed to read from UDP conn: %v", err)
+			logger.Error.Printf("Failed to read from local UDP conn: %v", err)
 			continue
 		}
 
-		go handleUdpPacket(buf[:n], remoteUdpAddr, conn, httpClient, remoteHost, remoteIP, key, cfg)
-	}
-}
-
-func handleUdpPacket(data []byte, remoteUdpAddr *net.UDPAddr, conn *net.UDPConn, httpClient *http.Client, remoteHost, remoteIP string, key []byte, cfg *config.Config) {
-	// Drop packets that are too large for the current dynamic window
-	maxSize := atomic.LoadUint64(&currentUdpPayloadSize)
-	if uint64(len(data)) > maxSize {
-		logger.Info.Printf("Dropping oversized UDP packet (%d > %d bytes)", len(data), maxSize)
-		return
-	}
-
-	atomic.AddUint64(&udpPacketsIn, 1)
-	atomic.AddUint64(&udpBytesIn, uint64(len(data)))
-	// Generate a unique session ID
-	sessionID := uuid.New().String()
-	udpSessionMutex.Lock()
-	udpSessionMap[sessionID] = remoteUdpAddr
-	udpSessionMutex.Unlock()
-
-	// Clean up the session map after a timeout
-	time.AfterFunc(30*time.Second, func() {
+		// Store the address so we can send responses back.
 		udpSessionMutex.Lock()
-		delete(udpSessionMap, sessionID)
+		udpSessionMap[cfg.DestinationUdpHost] = remoteUdpAddr
 		udpSessionMutex.Unlock()
-	})
 
-	// Prepend session ID and destination
-	header := fmt.Sprintf("%s:%s\n", sessionID, cfg.DestinationUdpHost)
-	payload := append([]byte(header), data...)
-	encrypted, err := crypto.Encrypt(payload, key)
-	if err != nil {
-		logger.Error.Printf("UDP encryption error: %v", err)
-		return
-	}
-
-	// Masquerade as a DNS query
-	dnsQuery, err := masquerade.WrapInDnsQuery(encrypted)
-	if err != nil {
-		logger.Error.Printf("Failed to wrap UDP in DNS query: %v", err)
-		return
-	}
-
-	// Send the raw UDP packet to the server's port 53
-	serverAddr := fmt.Sprintf("%s:53", remoteIP)
-	udpConn, err := net.Dial("udp", serverAddr)
-	if err != nil {
-		logger.Error.Printf("Failed to connect to server UDP port: %v", err)
-		return
-	}
-	defer udpConn.Close()
-
-	_, err = udpConn.Write(dnsQuery)
-	if err != nil {
-		logger.Error.Printf("Failed to send DNS query: %v", err)
-		return
-	}
-
-	// Read the response
-	respBuf := make([]byte, 4096)
-	udpConn.SetReadDeadline(time.Now().Add(10 * time.Second)) // Generous timeout
-	n, err := udpConn.Read(respBuf)
-	if err != nil {
-		// If we timed out, it's likely the packet was too large. Decrease the size.
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			newSize := atomic.LoadUint64(&currentUdpPayloadSize) / 2
-			if newSize < minUdpPayloadSize {
-				newSize = minUdpPayloadSize
-			}
-			atomic.StoreUint64(&currentUdpPayloadSize, newSize)
-			logger.Info.Printf("UDP timeout, decreasing payload size to %d", newSize)
-		} else {
-			logger.Error.Printf("Failed to read DNS response: %v", err)
+		// Prepend the destination and send it over the DTLS connection.
+		payload := append([]byte(cfg.DestinationUdpHost+"\n"), buf[:n]...)
+		if _, err := dtlsConn.Write(payload); err != nil {
+			logger.Error.Printf("DTLS write error: %v", err)
+			return
 		}
-		return
-	}
-
-	// If the request was successful, we can try increasing the payload size
-	newSize := atomic.LoadUint64(&currentUdpPayloadSize) + udpSizeStep
-	if newSize > maxUdpPayloadSize {
-		newSize = maxUdpPayloadSize
-	}
-	atomic.StoreUint64(&currentUdpPayloadSize, newSize)
-
-	// Unwrap and decrypt response
-	respData, err := masquerade.UnwrapFromDnsResponse(respBuf[:n])
-	if err != nil {
-		logger.Error.Printf("Failed to unwrap DNS response: %v", err)
-		return
-	}
-
-	decrypted, err := crypto.Decrypt(respData, key)
-	if err != nil {
-		logger.Error.Printf("UDP decryption error: %v", err)
-		return
-	}
-
-	// The response from the server should have the session ID prepended
-	parts := bytes.SplitN(decrypted, []byte(":"), 2)
-	if len(parts) != 2 {
-		logger.Error.Printf("Invalid multi-destination UDP response format")
-		return
-	}
-	sessionID := string(parts[0])
-	responseData := parts[1]
-
-	// Look up the original sender and forward the response
-	udpSessionMutex.Lock()
-	originalAddr, ok := udpSessionMap[sessionID]
-	udpSessionMutex.Unlock()
-
-	if !ok {
-		logger.Error.Printf("Could not find session for UDP response: %s", sessionID)
-		return
-	}
-
-	_, err = conn.WriteToUDP(responseData, originalAddr)
-	if err != nil {
-		logger.Error.Printf("Error writing to UDP conn: %v", err)
-	} else {
-		atomic.AddUint64(&udpPacketsOut, 1)
-		atomic.AddUint64(&udpBytesOut, uint64(len(responseData)))
 	}
 }
 

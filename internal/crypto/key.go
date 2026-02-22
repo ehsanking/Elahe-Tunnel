@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -38,7 +40,8 @@ func DecodeBase64Key(encodedKey string) ([]byte, error) {
 
 // Encrypt encrypts data using AES-GCM.
 func Encrypt(plaintext []byte, key []byte) ([]byte, error) {
-	c, err := aes.NewCipher(key)
+	encKey, _ := splitKey(key)
+	c, err := aes.NewCipher(encKey)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +61,8 @@ func Encrypt(plaintext []byte, key []byte) ([]byte, error) {
 
 // Decrypt decrypts data using AES-GCM.
 func Decrypt(ciphertext []byte, key []byte) ([]byte, error) {
-	c, err := aes.NewCipher(key)
+	encKey, _ := splitKey(key)
+	c, err := aes.NewCipher(encKey)
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +79,25 @@ func Decrypt(ciphertext []byte, key []byte) ([]byte, error) {
 
 	nonce, ciphertext := ciphertext[:nonceSize], ciphertext[nonceSize:]
 	return gcm.Open(nil, nonce, ciphertext, nil)
+}
+
+// GenerateHMAC creates an HMAC-SHA256 hash of the data.
+func GenerateHMAC(data, key []byte) []byte {
+	_, hmacKey := splitKey(key)
+	h := hmac.New(sha256.New, hmacKey)
+	h.Write(data)
+	return h.Sum(nil)
+}
+
+// VerifyHMAC checks if the provided HMAC is valid for the data.
+func VerifyHMAC(data, receivedHmac, key []byte) bool {
+	calculatedHmac := GenerateHMAC(data, key)
+	return hmac.Equal(receivedHmac, calculatedHmac)
+}
+
+// splitKey divides a 32-byte key into two 16-byte keys for encryption and HMAC.
+func splitKey(key []byte) (encKey, hmacKey []byte) {
+	return key[:16], key[16:]
 }
 
 // GenerateTLSConfig creates a self-signed TLS certificate and key.
