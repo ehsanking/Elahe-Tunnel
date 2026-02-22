@@ -31,7 +31,7 @@ else
         apt-get install -y golang-go
         echo "✅ Go compiler has been installed."
     else
-        echo "❌ Could not find 'apt-get'. Please install the Go compiler (version 1.18+) manually and re-run this script."
+        echo "❌ Could not find 'apt-get'. Please install the Go compiler (version 1.22+) manually and re-run this script."
         exit 1
     fi
 fi
@@ -40,14 +40,35 @@ fi
 echo "Compiling and installing Elahe Tunnel..."
 go install github.com/ehsanking/search-tunnel@latest
 
-# 3. Post-installation instructions
+# 3. Interactive Setup
 echo ""
-echo "✅ Elahe Tunnel installation successful!"
+echo "Elahe Tunnel is installed. Now let's configure it."
+PS3='Select the mode for this server: '
+options=("Internal (inside a censored network, e.g., Iran)" "External (with unrestricted internet, e.g., Germany)" "Quit")
+select opt in "${options[@]}"
+do
+    case $opt in
+        "Internal (inside a censored network, e.g., Iran)")
+            echo "Configuring as an internal server..."
+            elahe-tunnel setup internal
+            break
+            ;;
+        "External (with unrestricted internet, e.g., Germany)")
+            echo "Configuring as an external server..."
+            elahe-tunnel setup external
+            break
+            ;;
+        "Quit")
+            break
+            ;;
+        *)
+            echo "Invalid option $REPLY"
+            ;;
+    esac
+done
+
+# 4. Post-installation instructions
 echo ""
-echo "IMPORTANT: Please ensure your GOPATH/bin directory is in your system's PATH."
-echo "You can do this by adding the following line to your ~/.bashrc or ~/.zshrc:"
+echo "✅ Elahe Tunnel installation and setup complete!"
 echo ""
-echo '    export PATH=$PATH:$(go env GOPATH)/bin'
-echo ""
-echo "After adding it, restart your terminal or run 'source ~/.bashrc'."
-echo "You can then run the tunnel using the 'elahe-tunnel' command."
+echo "You can now run the tunnel using the 'elahe-tunnel run' command."

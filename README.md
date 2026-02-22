@@ -22,53 +22,18 @@ This masquerading technique aims to make the traffic pattern indistinguishable f
 
 ### Installation
 
-Run the following command in your terminal. This script will automatically check if Go is installed and, if not, attempt to install it for you before compiling the program.
+Run the following command in your terminal. This script will automatically check if Go is installed and, if not, attempt to install it for you before compiling and configuring the program.
 
 ```bash
-bash <(curl -s -L https://raw.githubusercontent.com/ehsanking/search-tunnel/main/install.sh)
+bash <(curl -s -L https://raw.githubusercontent.com/ehsanking/elahe-tunnel/main/install.sh)
 ```
 
 ### Usage
 
-The setup process involves configuring the external server first, then the internal one.
-
-#### Step 1: On Your External Server (e.g., in Germany)
-
-Run the `setup` command in `external` mode. This will generate a secure connection key that you'll need for the internal server.
+The installation script will guide you through the setup process. After installation, you can run the tunnel with:
 
 ```bash
-elahe-tunnel setup external
-```
-
-**Example Output:**
-```
-Setting up as an external (foreign) server...
-✅ External server setup complete.
-
-🔑 Your connection key is:
-
-    xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-Save this key. You will need it to connect your internal server.
-```
-
-> **Security Note:** Keep this key private. Anyone with this key can use your tunnel.
-
-#### Step 2: On Your Internal Server (e.g., in Iran)
-
-Run the `setup` command in `internal` mode. The tool will prompt you to enter the IP address of your external server and the connection key you generated in the previous step.
-
-```bash
-elahe-tunnel setup internal
-```
-
-**Example Interaction:**
-```
-Setting up as an internal (Iran) server...
-Enter the IP address of your external server: 123.45.67.89
-Enter the connection key: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-✅ Internal server setup complete. The tunnel is now attempting to connect.
+elahe-tunnel run
 ```
 
 #### Step 3: Check the Tunnel Status

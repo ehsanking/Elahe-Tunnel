@@ -9,14 +9,14 @@ import (
 
 var versionCmd = &cobra.Command{
 	Use:   "version",
-	Short: "Print the version number of Search Tunnel",
+	Short: "Print the version number of Elahe Tunnel",
 	Run: func(cmd *cobra.Command, args []string) {
 		data, err := os.ReadFile("VERSION")
 		if err != nil {
 			fmt.Println("Error reading version file: ", err)
 			os.Exit(1)
 		}
-		fmt.Printf("search-tunnel version %s\n", string(data))
+		fmt.Printf("Elahe Tunnel version %s\n", string(data))
 	},
 }
 
