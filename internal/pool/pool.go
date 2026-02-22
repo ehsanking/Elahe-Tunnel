@@ -53,14 +53,14 @@ func (p *channelPool) Get() (net.Conn, error) {
 			return nil, errors.New("pool is closed")
 		}
 		// Check if the connection is still alive
-		if conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond)); err != nil {
+		if err := conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond)); err != nil {
 			return p.factory()
 		}
 		var oneByte []byte
 		if _, err := conn.Read(oneByte); err != nil {
 			return p.factory()
 		}
-		if conn.SetReadDeadline(time.Time{}); err != nil {
+		if err := conn.SetReadDeadline(time.Time{}); err != nil {
 			return p.factory()
 		}
 		return conn, nil

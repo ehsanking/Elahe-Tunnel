@@ -92,6 +92,9 @@ fi
 
 # 3. Check/Install Go
 echo -n "Checking Go environment..."
+# Add potential Go path to PATH for check
+export PATH=/usr/local/go/bin:$PATH
+
 MIN_GO_VERSION="1.24.0"
 NEED_GO=false
 
@@ -100,9 +103,13 @@ if command -v go &> /dev/null; then
     # Simple version comparison
     if [ "$(printf '%s\n' "$MIN_GO_VERSION" "$INSTALLED_GO_VERSION" | sort -V | head -n1)" != "$MIN_GO_VERSION" ]; then
         NEED_GO=true
+        echo -e " ${YELLOW}(Found version $INSTALLED_GO_VERSION, need $MIN_GO_VERSION)${NC}"
+    else
+        echo -e " ${GREEN}Found Go $INSTALLED_GO_VERSION (OK)${NC}"
     fi
 else
     NEED_GO=true
+    echo -e " ${YELLOW}(Go not found)${NC}"
 fi
 
 if [ "$NEED_GO" = true ]; then
