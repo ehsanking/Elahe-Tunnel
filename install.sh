@@ -16,8 +16,9 @@ command_exists() {
 # --- Main Logic ---
 echo "Starting Elahe Tunnel installation..."
 
-# 1. Check for Go
+# 1. Check for Go and offer upgrade
 MIN_GO_VERSION="1.24.0"
+NEEDS_INSTALL_OR_UPGRADE=false
 
 version_ge() { test "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2"; }
 
@@ -26,22 +27,43 @@ if command_exists go; then
     if version_ge "$GO_VERSION" "$MIN_GO_VERSION"; then
         echo "✅ Go compiler version $GO_VERSION is installed and meets the requirement (>= $MIN_GO_VERSION)."
     else
-        echo "❌ Installed Go version ($GO_VERSION) is too old. Please upgrade to Go $MIN_GO_VERSION or newer."
-        exit 1
+        echo "⚠️ Your installed Go version ($GO_VERSION) is too old. Elahe Tunnel requires Go $MIN_GO_VERSION or newer."
+        NEEDS_INSTALL_OR_UPGRADE=true
     fi
 else
-    echo "Go compiler not found. Attempting to install for Debian/Ubuntu..."
-    if command_exists apt-get; then
+    echo "Go compiler not found."
+    NEEDS_INSTALL_OR_UPGRADE=true
+fi
+
+if [ "$NEEDS_INSTALL_OR_UPGRADE" = true ]; then
+    read -p "Would you like this script to attempt to download and install the latest version of Go? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "Downloading and installing the latest Go version..."
         if [ "$(id -u)" -ne 0 ]; then
-            echo "This script needs to run as root or with sudo to install Go."
-            echo "Please run again with sudo: sudo $0"
+            echo "This script needs root/sudo privileges to install Go to /usr/local. Please run with sudo."
             exit 1
         fi
-        apt-get update
-        apt-get install -y golang-go
-        echo "✅ Go compiler has been installed."
+        
+        GO_LATEST_VERSION=$(curl -s "https://go.dev/VERSION?m=text")
+        ARCH=$(uname -m)
+        case $ARCH in
+            "x86_64") ARCH="amd64" ;;
+            "aarch64") ARCH="arm64" ;;
+            *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+        esac
+        
+        DOWNLOAD_URL="https://go.dev/dl/${GO_LATEST_VERSION}.linux-${ARCH}.tar.gz"
+        echo "Downloading from $DOWNLOAD_URL"
+        curl -L "$DOWNLOAD_URL" -o /tmp/go.tar.gz
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf /tmp/go.tar.gz
+        rm /tmp/go.tar.gz
+        
+        export PATH=$PATH:/usr/local/go/bin
+        echo "✅ Go has been installed to version $(go version | awk '{print $3}')."
     else
-        echo "❌ Could not find 'apt-get'. Please install the Go compiler (version 1.24+) manually and re-run this script."
+        echo "Installation aborted. Please install Go $MIN_GO_VERSION or newer manually and re-run this script."
         exit 1
     fi
 fi
