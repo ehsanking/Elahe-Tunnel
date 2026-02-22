@@ -23,7 +23,7 @@ NEEDS_INSTALL_OR_UPGRADE=false
 version_ge() { test "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2"; }
 
 if command_exists go; then
-    GO_VERSION=$(go version | { read -r _ _ v _; echo "${v#go}"; })
+    GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
     if version_ge "$GO_VERSION" "$MIN_GO_VERSION"; then
         echo "✅ Go compiler version $GO_VERSION is installed and meets the requirement (>= $MIN_GO_VERSION)."
     else
@@ -45,7 +45,7 @@ if [ "$NEEDS_INSTALL_OR_UPGRADE" = true ]; then
             exit 1
         fi
         
-        GO_LATEST_VERSION=$(curl -s "https://go.dev/VERSION?m=text" | head -n1)
+        GO_LATEST_VERSION=$(curl -s "https://go.dev/VERSION?m=text" | awk '/^go/ {print; exit}')
         ARCH=$(uname -m)
         case $ARCH in
             "x86_64") ARCH="amd64" ;;
