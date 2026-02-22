@@ -181,6 +181,8 @@ cd "$SOURCE_DIR"
 (
     # Use goproxy.io to bypass potential restrictions for modules
     export GOPROXY=https://goproxy.io,direct
+    # Force use of local toolchain to prevent network attempts to download Go
+    export GOTOOLCHAIN=local
     go mod tidy
     go build -o elahe-tunnel -ldflags "-s -w" .
 ) &
