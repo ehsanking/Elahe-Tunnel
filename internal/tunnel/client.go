@@ -15,7 +15,6 @@ import (
 	"github.com/ehsanking/elahe-tunnel/internal/crypto"
 	"github.com/ehsanking/elahe-tunnel/internal/logger"
 	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
-	"github.com/google/uuid"
 	"encoding/json"
 	"os"
 	"sync/atomic"
@@ -445,16 +444,19 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 
 		var err error
 		for i := 0; i < maxRetries; i++ {
-			resp, err := httpClient.Do(req)
+			var resp *http.Response
+			resp, err = httpClient.Do(req)
 			if err == nil {
-				encryptedPong, err := masquerade.UnwrapFromHttpResponse(resp)
+				var encryptedPong []byte
+				encryptedPong, err = masquerade.UnwrapFromHttpResponse(resp)
 				resp.Body.Close()
 				if err != nil {
 					err = fmt.Errorf("invalid pong response: %w", err)
 					continue // Retry on invalid response
 				}
 
-				pong, err := crypto.Decrypt(encryptedPong, key)
+				var pong []byte
+				pong, err = crypto.Decrypt(encryptedPong, key)
 				if err != nil || string(pong) != "SEARCH_TUNNEL_PONG" {
 					err = fmt.Errorf("pong authentication failed")
 					continue // Retry on auth failure

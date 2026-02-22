@@ -32,7 +32,7 @@ func handlePingRequest(key []byte) http.HandlerFunc {
 				http.Error(w, "", http.StatusInternalServerError)
 				return
 			}
-			response := masquerade.WrapInHttpResponse(encryptedPong)
+			response := masquerade.WrapInRandomHttpResponse(encryptedPong)
 			response.Header.Write(w)
 			io.Copy(w, response.Body)
 		} else {
