@@ -212,8 +212,8 @@ fi
 
 # 4. Fix internal/tunnel/server.go (Major fixes)
 if [ -f "internal/tunnel/server.go" ]; then
-    # Add missing import
-    sed -i '/"github.com\/pion\/dtls\/v2"/i \	"github.com/miekg/dns"' internal/tunnel/server.go
+    # Remove any existing miekg/dns imports to prevent duplicates/unused errors
+    sed -i '/"github.com\/miekg\/dns"/d' internal/tunnel/server.go
     
     # Remove undefined handleUdpRequest usage
     sed -i '/udpHandler := http.HandlerFunc(handleUdpRequest(key))/d' internal/tunnel/server.go
