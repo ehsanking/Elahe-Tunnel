@@ -311,4 +311,21 @@ echo -e "Starting setup wizard...\n"
 sleep 1
 
 # 6. Run Setup
-elahe-tunnel setup
+echo -e "\n${YELLOW}--- Setup Wizard ---${NC}"
+echo "Please select the node type:"
+echo "1) External (Server - Outside Iran)"
+echo "2) Internal (Client - Inside Iran)"
+read -p "Enter choice [1-2]: " choice
+
+case $choice in
+    1)
+        elahe-tunnel setup external
+        ;;
+    2)
+        elahe-tunnel setup internal
+        ;;
+    *)
+        echo -e "${RED}Invalid choice.${NC}"
+        echo -e "Please run '${GREEN}elahe-tunnel setup external${NC}' or '${GREEN}elahe-tunnel setup internal${NC}' manually."
+        ;;
+esac
