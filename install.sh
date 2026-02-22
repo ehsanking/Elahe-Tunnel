@@ -45,7 +45,9 @@ if [ "$NEEDS_INSTALL_OR_UPGRADE" = true ]; then
             exit 1
         fi
         
-        GO_LATEST_VERSION=$(curl -s "https://go.dev/VERSION?m=text" | awk '/^go/ {print; exit}')
+        CURL_OPTS="-s -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'"
+        
+        GO_LATEST_VERSION=$(curl $CURL_OPTS "https://go.dev/VERSION?m=text" | awk '/^go/ {print $1; exit}' | tr -d '\r')
         ARCH=$(uname -m)
         case $ARCH in
             "x86_64") ARCH="amd64" ;;
@@ -55,7 +57,15 @@ if [ "$NEEDS_INSTALL_OR_UPGRADE" = true ]; then
         
         DOWNLOAD_URL="https://go.dev/dl/${GO_LATEST_VERSION}.linux-${ARCH}.tar.gz"
         echo "Downloading from $DOWNLOAD_URL"
-        curl -L "$DOWNLOAD_URL" -o /tmp/go.tar.gz
+        curl $CURL_OPTS -L -o /tmp/go.tar.gz "$DOWNLOAD_URL"
+
+        if ! file /tmp/go.tar.gz | grep -q 'gzip compressed data'; then
+            echo "❌ Download failed. The downloaded file is not a valid gzip archive."
+            echo "This can happen due to network issues or regional blocks. Please try again later."
+            exit 1
+        fi
+
+        echo "Extracting Go archive..."
         rm -rf /usr/local/go
         tar -C /usr/local -xzf /tmp/go.tar.gz
         rm /tmp/go.tar.gz
