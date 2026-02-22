@@ -169,8 +169,8 @@ else
     echo -e " ${GREEN}Go is up to date.${NC}"
 fi
 
-# Ensure Go is in PATH for this session
-export PATH=$PATH:/usr/local/go/bin
+# Ensure Go is in PATH for this session (Prepend to take precedence over system Go)
+export PATH=/usr/local/go/bin:$PATH
 
 # 4. Compile
 echo -n "Compiling application..."
