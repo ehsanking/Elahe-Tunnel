@@ -22,7 +22,7 @@ spinner() {
 }
 
 echo -e "${GREEN}=========================================${NC}"
-echo -e "${GREEN}   Elahe Tunnel Single-Line Installer    ${NC}"
+echo -e "${GREEN}   Elahe Tunnel Single-Line Installer v1.1 ${NC}"
 echo -e "${GREEN}=========================================${NC}"
 
 # 1. Install Dependencies (unzip, curl, file)
