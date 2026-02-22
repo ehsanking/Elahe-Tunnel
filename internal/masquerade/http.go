@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/ehsanking/search-tunnel/internal/logger"
 )
 
 func init() {
@@ -26,6 +28,7 @@ func WrapInHttpRequest(data []byte, host string) (*http.Request, error) {
 
 	// Randomly choose between GET and POST
 	if rand.Float32() < 0.5 {
+		logger.Info.Println("Masquerading as GET request")
 		// --- Create GET request ---
 		targetURL := "https://" + host + "/search"
 		req, err = http.NewRequest("GET", targetURL, nil)
@@ -40,6 +43,7 @@ func WrapInHttpRequest(data []byte, host string) (*http.Request, error) {
 		q.Add("sourceid", "chrome")
 		req.URL.RawQuery = q.Encode()
 	} else {
+		logger.Info.Println("Masquerading as POST request")
 		// --- Create POST request ---
 		form := url.Values{}
 		form.Add("q", "search-tunnel-payload") // A decoy query
@@ -130,13 +134,17 @@ func WrapInTextResponse(data []byte) *http.Response {
 
 // WrapInRandomHttpResponse randomly chooses a response format (HTML, JSON, text) and wraps the data in it.
 func WrapInRandomHttpResponse(data []byte) *http.Response {
+	logger.Info.Println("Choosing random response format...")
 	choice := rand.Intn(3)
 	switch choice {
 	case 0:
+		logger.Info.Println("Masquerading as HTML response")
 		return WrapInHtmlResponse(data)
 	case 1:
+		logger.Info.Println("Masquerading as JSON response")
 		return WrapInJsonResponse(data)
 	default:
+		logger.Info.Println("Masquerading as Text response")
 		return WrapInTextResponse(data)
 	}
 }

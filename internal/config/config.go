@@ -13,6 +13,11 @@ type Config struct {
 	ConnectionKey string `json:"connection_key"` // Stored as base64
 	RemoteHost    string `json:"remote_host,omitempty"`
 	DnsProxyEnabled bool `json:"dns_proxy_enabled,omitempty"`
+	DestinationHost string `json:"destination_host,omitempty"`
+	UdpProxyEnabled bool `json:"udp_proxy_enabled,omitempty"`
+	DestinationUdpHost string `json:"destination_udp_host,omitempty"`
+	TunnelListenAddr string `json:"tunnel_listen_addr,omitempty"`
+	TunnelListenKey string `json:"tunnel_listen_key,omitempty"`
 }
 
 // SaveConfig saves the given configuration to the config file.

@@ -10,6 +10,11 @@ import (
 )
 
 var dnsProxyEnabled bool
+var destinationHost string
+var udpProxyEnabled bool
+var destinationUdpHost string
+var tunnelListenAddr string
+var tunnelListenKey string
 
 var runCmd = &cobra.Command{
 	Use:   "run",
@@ -26,6 +31,11 @@ var runCmd = &cobra.Command{
 		case "internal":
 			fmt.Println("Starting tunnel in internal (client) mode...")
 			cfg.DnsProxyEnabled = dnsProxyEnabled
+			cfg.DestinationHost = destinationHost
+			cfg.UdpProxyEnabled = udpProxyEnabled
+			cfg.DestinationUdpHost = destinationUdpHost
+			cfg.TunnelListenAddr = tunnelListenAddr
+			cfg.TunnelListenKey = tunnelListenKey
 			if err := tunnel.RunClient(cfg); err != nil {
 				fmt.Println("Client error:", err)
 				os.Exit(1)
@@ -45,5 +55,10 @@ var runCmd = &cobra.Command{
 
 func init() {
 	runCmd.Flags().BoolVar(&dnsProxyEnabled, "dns", false, "Enable the local DNS proxy to tunnel DNS queries")
+	runCmd.Flags().StringVar(&destinationHost, "dest", "tcpbin.com:4242", "The destination host and port to tunnel to")
+	runCmd.Flags().BoolVar(&udpProxyEnabled, "udp", false, "Enable the local UDP proxy to tunnel UDP packets")
+	runCmd.Flags().StringVar(&destinationUdpHost, "dest-udp", "8.8.8.8:53", "The destination UDP host and port to tunnel to")
+	runCmd.Flags().StringVar(&tunnelListenAddr, "listen-tunnel-addr", "", "(Proxy mode) Address to listen for incoming tunnel connections")
+	runCmd.Flags().StringVar(&tunnelListenKey, "listen-tunnel-key", "", "(Proxy mode) Connection key for incoming tunnel connections")
 	rootCmd.AddCommand(runCmd)
 }
