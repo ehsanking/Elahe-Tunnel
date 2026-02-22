@@ -238,6 +238,18 @@ if [ -f "internal/tunnel/server.go" ]; then
     # We escape & as \& to prevent sed from treating it as "matched string"
     sed -i 's|dtlsListener, err := dtls.NewListener(udpConn, &dtls.Config{|dtlsListener, err := dtls.Listen("udp", udpAddr, \&dtls.Config{|' internal/tunnel/server.go
 fi
+# 5. Fix Unused Imports (Cleanup)
+if [ -f "internal/tunnel/dns.go" ]; then
+    sed -i '/^[[:space:]]*"net"$/d' internal/tunnel/dns.go
+fi
+if [ -f "internal/tunnel/ping.go" ]; then
+    sed -i '/^[[:space:]]*"fmt"$/d' internal/tunnel/ping.go
+fi
+if [ -f "internal/tunnel/server.go" ]; then
+    sed -i '/^[[:space:]]*"github.com\/ehsanking\/elahe-tunnel\/internal\/pool"$/d' internal/tunnel/server.go
+    sed -i '/^[[:space:]]*"context"$/d' internal/tunnel/server.go
+fi
+
 echo -e " ${GREEN}OK${NC}"
 # ---------------------------------
 
