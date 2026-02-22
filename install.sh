@@ -123,7 +123,7 @@ if [ -f "go.mod" ] && [ -f "main.go" ]; then
 else
     echo -n "Downloading Elahe Tunnel source code..."
     (
-        rm -rf elahe-tunnel-main
+        rm -rf Elahe-Tunnel-main elahe-tunnel-main
         
         # 1. Check for local manual upload
         if [ -f "main.zip" ] && unzip -tq main.zip >/dev/null 2>&1; then
@@ -131,7 +131,7 @@ else
         else
             rm -f main.zip
             # 2. Direct Download
-            if ! curl -s -L --connect-timeout 15 --max-time 300 -o main.zip "https://github.com/ehsanking/elahe-tunnel/archive/refs/heads/main.zip"; then
+            if ! curl -s -L --connect-timeout 15 --max-time 300 -o main.zip "https://github.com/ehsanking/Elahe-Tunnel/archive/refs/heads/main.zip"; then
                  rm -f main.zip
             fi
             
@@ -139,13 +139,13 @@ else
             if [ ! -f "main.zip" ] || ! unzip -tq main.zip >/dev/null 2>&1; then
                 rm -f main.zip
                 # Using ghproxy mirror
-                curl -s -L --connect-timeout 15 --max-time 300 -o main.zip "https://mirror.ghproxy.com/https://github.com/ehsanking/elahe-tunnel/archive/refs/heads/main.zip"
+                curl -s -L --connect-timeout 15 --max-time 300 -o main.zip "https://mirror.ghproxy.com/https://github.com/ehsanking/Elahe-Tunnel/archive/refs/heads/main.zip"
             fi
         fi
 
-        # Extract
+        # Extract with overwrite (-o)
         if unzip -tq main.zip >/dev/null 2>&1; then
-            unzip -q main.zip
+            unzip -o -q main.zip
         else
             exit 1
         fi
@@ -154,7 +154,7 @@ else
     spinner $PID
     wait $PID
 
-    if [ ! -d "elahe-tunnel-main" ]; then
+    if [ ! -d "Elahe-Tunnel-main" ]; then
         echo -e "\n${RED}Failed to download source code. GitHub might be blocked.${NC}"
         echo -e "${YELLOW}Solution: Download 'main.zip' from GitHub manually and upload it here.${NC}"
         exit 1
@@ -166,8 +166,8 @@ fi
 echo -n "Compiling application..."
 
 # Enter directory only if we downloaded it
-if [ -d "elahe-tunnel-main" ]; then
-    cd elahe-tunnel-main
+if [ -d "Elahe-Tunnel-main" ]; then
+    cd Elahe-Tunnel-main
 fi
 
 (
@@ -194,7 +194,7 @@ chmod +x /usr/local/bin/elahe-tunnel
 # Cleanup only if we downloaded
 if [ -f "../install.sh" ]; then
     cd ..
-    rm -rf elahe-tunnel-main main.zip
+    rm -rf Elahe-Tunnel-main main.zip
 fi
 echo -e " ${GREEN}OK${NC}"
 
