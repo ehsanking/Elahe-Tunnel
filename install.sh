@@ -38,90 +38,14 @@ if ! command -v unzip &> /dev/null || ! command -v curl &> /dev/null || ! comman
 fi
 echo -e " ${GREEN}OK${NC}"
 
-# 2. Check/Install Go
-echo -n "Checking Go environment..."
-MIN_GO_VERSION="1.24.0"
-NEED_GO=false
+# 2. Download Source Code (Moved up to check for bundled Go)
+echo -n "Downloading Elahe Tunnel source code..."
 
-if command -v go &> /dev/null; then
-    INSTALLED_GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-    # Simple version comparison
-    if [ "$(printf '%s\n' "$MIN_GO_VERSION" "$INSTALLED_GO_VERSION" | sort -V | head -n1)" != "$MIN_GO_VERSION" ]; then
-        NEED_GO=true
-    fi
-else
-    NEED_GO=true
-fi
-
-if [ "$NEED_GO" = true ]; then
-    echo -e "\n${YELLOW}Installing Go 1.24.0...${NC}"
-    (
-        rm -rf /usr/local/go
-        
-        LATEST_VER="go1.24.0"
-        ARCH=$(uname -m)
-        case $ARCH in
-            x86_64) ARCH="amd64" ;;
-            aarch64) ARCH="arm64" ;;
-        esac
-        
-        # 1. Check for local file (Manual Upload Method)
-        if [ -f "go.tar.gz" ]; then
-            echo "Found local go.tar.gz, using it..."
-            cp go.tar.gz /tmp/go.tar.gz
-        else
-            # 2. Try User's GitHub Release (Primary Method)
-            URL="https://github.com/ehsanking/Elahe-Tunnel/releases/download/Go_1.24/go.tar.gz"
-            echo "Downloading Go 1.24 from GitHub Release..."
-            
-            # Try downloading from GitHub
-            if ! curl -L -A 'Mozilla/5.0' --connect-timeout 15 --max-time 600 -o /tmp/go.tar.gz "$URL"; then
-                echo "⚠️ GitHub download failed. Switching to Aliyun Mirror..."
-                
-                # 3. Fallback to Aliyun Mirror
-                URL="https://mirrors.aliyun.com/golang/${LATEST_VER}.linux-${ARCH}.tar.gz"
-                echo "Downloading from Aliyun Mirror ($URL)..."
-                
-                if ! curl -L -A 'Mozilla/5.0' -o /tmp/go.tar.gz "$URL"; then
-                    echo "❌ All download methods failed." >&2
-                    exit 1
-                fi
-            fi
-        fi
-        
-        # Verify and Install
-        if file /tmp/go.tar.gz | grep -q 'gzip'; then
-            tar -C /usr/local -xzf /tmp/go.tar.gz
-            rm /tmp/go.tar.gz
-        else
-            echo "File is not a valid gzip archive." >&2
-            exit 1
-        fi
-    ) &
-    
-    PID=$!
-    spinner $PID
-    wait $PID
-    
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}Failed to install Go. Check your internet connection.${NC}"
-        exit 1
-    fi
-    
-    export PATH=$PATH:/usr/local/go/bin
-    echo -e "${GREEN}Go installed successfully.${NC}"
-else
-    echo -e " ${GREEN}Go is up to date.${NC}"
-fi
-
-# Ensure Go is in PATH for this session
-export PATH=$PATH:/usr/local/go/bin
-
-# 3. Download Source Code (Skipped if running inside repo)
+# Check if running inside source directory
 if [ -f "go.mod" ] && [ -f "main.go" ]; then
     echo -e " ${GREEN}Running inside source directory. Skipping download.${NC}"
+    SOURCE_DIR="."
 else
-    echo -n "Downloading Elahe Tunnel source code..."
     (
         rm -rf Elahe-Tunnel-main elahe-tunnel-main
         
@@ -154,7 +78,11 @@ else
     spinner $PID
     wait $PID
 
-    if [ ! -d "Elahe-Tunnel-main" ]; then
+    if [ -d "Elahe-Tunnel-main" ]; then
+        SOURCE_DIR="Elahe-Tunnel-main"
+    elif [ -d "elahe-tunnel-main" ]; then
+        SOURCE_DIR="elahe-tunnel-main"
+    else
         echo -e "\n${RED}Failed to download source code. GitHub might be blocked.${NC}"
         echo -e "${YELLOW}Solution: Download 'main.zip' from GitHub manually and upload it here.${NC}"
         exit 1
@@ -162,13 +90,93 @@ else
     echo -e " ${GREEN}OK${NC}"
 fi
 
+# 3. Check/Install Go
+echo -n "Checking Go environment..."
+MIN_GO_VERSION="1.24.0"
+NEED_GO=false
+
+if command -v go &> /dev/null; then
+    INSTALLED_GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
+    # Simple version comparison
+    if [ "$(printf '%s\n' "$MIN_GO_VERSION" "$INSTALLED_GO_VERSION" | sort -V | head -n1)" != "$MIN_GO_VERSION" ]; then
+        NEED_GO=true
+    fi
+else
+    NEED_GO=true
+fi
+
+if [ "$NEED_GO" = true ]; then
+    echo -e "\n${YELLOW}Installing Go 1.24.0...${NC}"
+    (
+        rm -rf /usr/local/go
+        
+        LATEST_VER="go1.24.0"
+        ARCH=$(uname -m)
+        case $ARCH in
+            x86_64) ARCH="amd64" ;;
+            aarch64) ARCH="arm64" ;;
+        esac
+        
+        # 1. Check for bundled Go in resources/ (Best for offline/bundled install)
+        if [ -f "$SOURCE_DIR/resources/go.tar.gz" ]; then
+            echo "Found bundled Go in resources/go.tar.gz, using it..."
+            cp "$SOURCE_DIR/resources/go.tar.gz" /tmp/go.tar.gz
+        # 2. Check for local file (Manual Upload Method in root)
+        elif [ -f "go.tar.gz" ]; then
+            echo "Found local go.tar.gz in root, using it..."
+            cp go.tar.gz /tmp/go.tar.gz
+        else
+            # 3. Try User's GitHub Release (Primary Online Method)
+            URL="https://github.com/ehsanking/Elahe-Tunnel/releases/download/Go_1.24/go.tar.gz"
+            echo "Downloading Go 1.24 from GitHub Release..."
+            
+            # Try downloading from GitHub (Timeout reduced to 10s connection, 600s max transfer)
+            if ! curl -L -A 'Mozilla/5.0' --connect-timeout 10 --max-time 600 -o /tmp/go.tar.gz "$URL"; then
+                echo "⚠️ GitHub download failed or timed out. Switching to Aliyun Mirror..."
+                
+                # 4. Fallback to Aliyun Mirror
+                URL="https://mirrors.aliyun.com/golang/${LATEST_VER}.linux-${ARCH}.tar.gz"
+                echo "Downloading from Aliyun Mirror ($URL)..."
+                
+                if ! curl -L -A 'Mozilla/5.0' -o /tmp/go.tar.gz "$URL"; then
+                    echo "❌ All download methods failed." >&2
+                    exit 1
+                fi
+            fi
+        fi
+        
+        # Verify and Install
+        if file /tmp/go.tar.gz | grep -q 'gzip'; then
+            tar -C /usr/local -xzf /tmp/go.tar.gz
+            rm /tmp/go.tar.gz
+        else
+            echo "File is not a valid gzip archive." >&2
+            exit 1
+        fi
+    ) &
+    PID=$!
+    spinner $PID
+    wait $PID
+    
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Failed to install Go. Check your internet connection.${NC}"
+        exit 1
+    fi
+    
+    export PATH=$PATH:/usr/local/go/bin
+    echo -e "${GREEN}Go installed successfully.${NC}"
+else
+    echo -e " ${GREEN}Go is up to date.${NC}"
+fi
+
+# Ensure Go is in PATH for this session
+export PATH=$PATH:/usr/local/go/bin
+
 # 4. Compile
 echo -n "Compiling application..."
 
-# Enter directory only if we downloaded it
-if [ -d "Elahe-Tunnel-main" ]; then
-    cd Elahe-Tunnel-main
-fi
+# Enter directory
+cd "$SOURCE_DIR"
 
 (
     # Use goproxy.io to bypass potential restrictions for modules
