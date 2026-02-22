@@ -20,17 +20,43 @@ This masquerading technique aims to make the traffic pattern indistinguishable f
 
 ## 🚀 Getting Started
 
-### Installation
+### Installation Guide
 
-**Requirement:** You need Go version **1.24.0** or newer.
+Due to potential network restrictions that can interfere with direct installation on servers, the recommended method is to compile the application on your local machine and then transfer the binary to your server.
 
-Run the following command in your terminal. This script will check your Go version, guide you through the installation, and then configure the tunnel interactively.
+**Step 1: On Your Local Machine (with Go 1.24+ installed)**
 
-```bash
-bash <(curl -s -L https://raw.githubusercontent.com/ehsanking/elahe-tunnel/main/install.sh)
-```
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/ehsanking/elahe-tunnel.git
+    cd elahe-tunnel
+    ```
 
-After the script finishes, you **must** add the Go binary path to your shell's configuration to use the `elahe-tunnel` command. The script will provide you with the exact instructions.
+2.  **Run the build script:**
+    This script will compile the application for a standard Linux server (amd64 architecture).
+    ```bash
+    bash build.sh
+    ```
+
+3.  **Transfer the binary to your server:**
+    After a successful build, a binary file named `elahe-tunnel` will be created in a `release` directory. Use `scp` or any other file transfer method to upload it to your server.
+    ```bash
+    # Replace user@your_server_ip with your server's details
+    scp release/elahe-tunnel user@your_server_ip:~
+    ```
+
+**Step 2: On Your Server**
+
+1.  **Make the binary executable:**
+    ```bash
+    chmod +x ~/elahe-tunnel
+    ```
+
+2.  **Run the interactive setup:**
+    The application will guide you through configuring it as an internal or external server.
+    ```bash
+    ./elahe-tunnel setup
+    ```
 
 ### Usage
 
