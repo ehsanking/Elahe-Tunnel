@@ -45,7 +45,7 @@ if [ "$NEEDS_INSTALL_OR_UPGRADE" = true ]; then
             exit 1
         fi
         
-        GO_LATEST_VERSION=$(curl -s "https://go.dev/VERSION?m=text")
+        GO_LATEST_VERSION=$(curl -s "https://go.dev/VERSION?m=text" | head -n1)
         ARCH=$(uname -m)
         case $ARCH in
             "x86_64") ARCH="amd64" ;;
