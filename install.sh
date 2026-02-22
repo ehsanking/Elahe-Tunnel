@@ -45,7 +45,7 @@ if [ "$NEEDS_INSTALL_OR_UPGRADE" = true ]; then
             exit 1
         fi
         
-        CURL_OPTS="-s -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36'"
+        CURL_OPTS="-s -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36' --referer 'https://go.dev/'"
         
         GO_LATEST_VERSION=$(curl $CURL_OPTS "https://go.dev/VERSION?m=text" | awk '/^go/ {print $1; exit}' | tr -d '\r')
         ARCH=$(uname -m)
@@ -55,13 +55,14 @@ if [ "$NEEDS_INSTALL_OR_UPGRADE" = true ]; then
             *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
         esac
         
-        DOWNLOAD_URL="https://go.dev/dl/${GO_LATEST_VERSION}.linux-${ARCH}.tar.gz"
+        DOWNLOAD_URL="https://storage.googleapis.com/golang/${GO_LATEST_VERSION}.linux-${ARCH}.tar.gz"
         echo "Downloading from $DOWNLOAD_URL"
         curl $CURL_OPTS -L -o /tmp/go.tar.gz "$DOWNLOAD_URL"
 
         if ! file /tmp/go.tar.gz | grep -q 'gzip compressed data'; then
             echo "❌ Download failed. The downloaded file is not a valid gzip archive."
-            echo "This can happen due to network issues or regional blocks. Please try again later."
+            echo "This often happens due to network filtering or regional blocks preventing access to go.dev."
+            echo "Please try running the script again, or download the archive manually and place it at /tmp/go.tar.gz before running."
             exit 1
         fi
 
