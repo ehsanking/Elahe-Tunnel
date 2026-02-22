@@ -17,8 +17,18 @@ command_exists() {
 echo "Starting Elahe Tunnel installation..."
 
 # 1. Check for Go
+MIN_GO_VERSION="1.24.0"
+
+version_ge() { test "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$2"; }
+
 if command_exists go; then
-    echo "✅ Go compiler is already installed."
+    GO_VERSION=$(go version | { read -r _ _ v _; echo "${v#go}"; })
+    if version_ge "$GO_VERSION" "$MIN_GO_VERSION"; then
+        echo "✅ Go compiler version $GO_VERSION is installed and meets the requirement (>= $MIN_GO_VERSION)."
+    else
+        echo "❌ Installed Go version ($GO_VERSION) is too old. Please upgrade to Go $MIN_GO_VERSION or newer."
+        exit 1
+    fi
 else
     echo "Go compiler not found. Attempting to install for Debian/Ubuntu..."
     if command_exists apt-get; then
@@ -31,7 +41,7 @@ else
         apt-get install -y golang-go
         echo "✅ Go compiler has been installed."
     else
-        echo "❌ Could not find 'apt-get'. Please install the Go compiler (version 1.22+) manually and re-run this script."
+        echo "❌ Could not find 'apt-get'. Please install the Go compiler (version 1.24+) manually and re-run this script."
         exit 1
     fi
 fi
@@ -77,7 +87,16 @@ do
 done
 
 # 4. Post-installation instructions
+
 echo ""
-echo "✅ Elahe Tunnel installation and setup complete!"
+echo "✅ Elahe Tunnel has been compiled and installed!"
 echo ""
-echo "You can now run the tunnel using the 'elahe-tunnel run' command."
+echo "--- IMPORTANT NEXT STEPS ---"
+echo "To use the 'elahe-tunnel' command, you need to add Go's binary path to your shell's PATH variable."
+echo "1. Find your Go binary path by running: go env GOPATH"
+echo "2. Open your shell configuration file (e.g., ~/.bashrc, ~/.zshrc)."
+echo "3. Add the following line to the end of the file (replace '~/go' if your path is different):"
+echo "   export PATH=\"$PATH:$(go env GOPATH)/bin\""
+echo "4. Save the file and restart your terminal, or run 'source ~/.bashrc' (or your respective config file)."
+echo ""
+echo "After these steps, the 'elahe-tunnel run' command will be available."

@@ -2,7 +2,7 @@
 
 > A censorship circumvention tool that disguises network traffic as Google search packets.
 
-[![Go Version](https://img.shields.io/badge/go-1.22-blue.svg)](https://golang.org/)
+[![Go Version](https://img.shields.io/badge/go-1.24+-blue.svg)](https://golang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Version](https://img.shields.io/badge/version-0.0.1-orange.svg)](/VERSION)
 
@@ -22,15 +22,19 @@ This masquerading technique aims to make the traffic pattern indistinguishable f
 
 ### Installation
 
-Run the following command in your terminal. This script will automatically check if Go is installed and, if not, attempt to install it for you before compiling and configuring the program.
+**Requirement:** You need Go version **1.24.0** or newer.
+
+Run the following command in your terminal. This script will check your Go version, guide you through the installation, and then configure the tunnel interactively.
 
 ```bash
 bash <(curl -s -L https://raw.githubusercontent.com/ehsanking/elahe-tunnel/main/install.sh)
 ```
 
+After the script finishes, you **must** add the Go binary path to your shell's configuration to use the `elahe-tunnel` command. The script will provide you with the exact instructions.
+
 ### Usage
 
-The installation script will guide you through the setup process. After installation, you can run the tunnel with:
+Once installed and configured, you can start the tunnel with:
 
 ```bash
 elahe-tunnel run
