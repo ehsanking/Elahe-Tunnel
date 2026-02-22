@@ -13,7 +13,7 @@ import (
 
 var setupCmd = &cobra.Command{
 	Use:   "setup [internal | external]",
-	Short: "Setup the server as an internal or external node.",
+	Short: "Initial setup for the Elahe Tunnel.",
 	Long:  `Use 'setup' to configure the current machine as either an internal (relay) node inside a censored network or an external (exit) node with free internet access.`,
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {

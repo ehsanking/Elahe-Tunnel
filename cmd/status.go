@@ -10,11 +10,14 @@ import (
 	"github.com/ehsanking/search-tunnel/internal/config"
 	"github.com/ehsanking/search-tunnel/internal/crypto"
 	"github.com/ehsanking/search-tunnel/internal/masquerade"
+	"encoding/json"
+	"io"
+	"net"
 )
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Check the current status of the tunnel.",
+	Short: "Check the current status of the Elahe Tunnel.",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Checking tunnel status...")
 		cfg, err := config.LoadConfig()
@@ -33,47 +36,49 @@ var statusCmd = &cobra.Command{
 	},
 }
 
+const socketPath = "/tmp/search-tunnel.sock"
+
 func checkConnectionStatus(cfg *config.Config) {
-	key, err := crypto.DecodeBase64Key(cfg.ConnectionKey)
+	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
-		fmt.Println("  Status: Inactive (Invalid Key)")
+		fmt.Println("  Status: Inactive (Tunnel process not running?)")
 		return
 	}
+	defer conn.Close()
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	httpClient := &http.Client{Transport: tr, Timeout: 10 * time.Second}
-
-	pingData, _ := crypto.Encrypt([]byte("SEARCH_TUNNEL_PING"), key)
-	req, _ := masquerade.WrapInHttpRequest(pingData, "www.google.com")
-	req.URL.Scheme = "https"
-	req.URL.Host = cfg.RemoteHost
-	req.URL.Path = "/favicon.ico"
-
-	start := time.Now()
-	resp, err := httpClient.Do(req)
+	// No need to send data, the server responds on connect
+	jsonData, err := io.ReadAll(conn)
 	if err != nil {
-		fmt.Println("  Status: Inactive (Connection Error)")
-		return
-	}
-	defer resp.Body.Close()
-	latency := time.Since(start)
-
-	encryptedPong, err := masquerade.UnwrapFromHttpResponse(resp)
-	if err != nil {
-		fmt.Println("  Status: Inactive (Invalid Response)")
+		fmt.Println("  Status: Error reading from tunnel process")
 		return
 	}
 
-	pong, err := crypto.Decrypt(encryptedPong, key)
-	if err != nil || string(pong) != "SEARCH_TUNNEL_PONG" {
-		fmt.Println("  Status: Inactive (Authentication Failed)")
+	var status struct {
+		UdpEnabled         bool   `json:"udp_enabled"`
+		UdpDestination     string `json:"udp_destination"`
+		UdpPacketsIn       uint64 `json:"udp_packets_in"`
+		UdpPacketsOut      uint64 `json:"udp_packets_out"`
+		UdpBytesIn         uint64 `json:"udp_bytes_in"`
+		UdpBytesOut        uint64 `json:"udp_bytes_out"`
+		CurrentUdpPayloadSize uint64 `json:"current_udp_payload_size"`
+	}
+
+	if err := json.Unmarshal(jsonData, &status); err != nil {
+		fmt.Println("  Status: Error parsing status response from tunnel")
 		return
 	}
 
-	fmt.Printf("  Status: Active\n")
-	fmt.Printf("  Latency: %s\n", latency.Round(time.Millisecond))
+	fmt.Println("  Status: Active")
+	fmt.Println("  --- UDP Tunnel ---")
+	if status.UdpEnabled {
+		fmt.Printf("    Status: Enabled\n")
+		fmt.Printf("    Destination: %s\n", status.UdpDestination)
+		fmt.Printf("    Packets In/Out: %d / %d\n", status.UdpPacketsIn, status.UdpPacketsOut)
+		fmt.Printf("    Bytes In/Out: %d / %d\n", status.UdpBytesIn, status.UdpBytesOut)
+		fmt.Printf("    Current Payload Size: %d bytes\n", status.CurrentUdpPayloadSize)
+	} else {
+		fmt.Println("    Status: Disabled")
+	}
 }
 
 func init() {

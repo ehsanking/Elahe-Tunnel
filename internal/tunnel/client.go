@@ -16,10 +16,16 @@ import (
 	"github.com/ehsanking/search-tunnel/internal/logger"
 	"github.com/ehsanking/search-tunnel/internal/masquerade"
 	"github.com/google/uuid"
+	"encoding/json"
+	"os"
+	"sync/atomic"
 )
 
 // RunClient starts the internal node client.
 func RunClient(cfg *config.Config) error {
+	// Start the status server
+	go runStatusServer(cfg)
+
 	// If listen address is provided, start the proxy server
 	if cfg.TunnelListenAddr != "" {
 		go runProxyServer(cfg)
@@ -118,8 +124,85 @@ func RunClient(cfg *config.Config) error {
 	}
 }
 
-var udpSessionMap = make(map[string]*net.UDPAddr)
-var udpSessionMutex = &sync.Mutex{}
+const socketPath = "/tmp/search-tunnel.sock"
+
+// runStatusServer starts a server on a Unix domain socket to provide status updates.
+func runStatusServer(cfg *config.Config) {
+	// Ensure the socket doesn't already exist
+	_ = os.Remove(socketPath)
+
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		logger.Error.Printf("Failed to create status socket: %v", err)
+		return
+	}
+	defer listener.Close()
+
+	logger.Info.Printf("Status server listening on %s", socketPath)
+
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			logger.Error.Printf("Failed to accept status connection: %v", err)
+			continue
+		}
+		go handleStatusRequest(conn, cfg)
+	}
+}
+
+// handleStatusRequest handles a single status request from the 'status' command.
+func handleStatusRequest(conn net.Conn, cfg *config.Config) {
+	defer conn.Close()
+
+	status := struct {
+		UdpEnabled         bool   `json:"udp_enabled"`
+		UdpDestination     string `json:"udp_destination"`
+		UdpPacketsIn       uint64 `json:"udp_packets_in"`
+		UdpPacketsOut      uint64 `json:"udp_packets_out"`
+		UdpBytesIn         uint64 `json:"udp_bytes_in"`
+		UdpBytesOut        uint64 `json:"udp_bytes_out"`
+		CurrentUdpPayloadSize uint64 `json:"current_udp_payload_size"`
+	}{
+		UdpEnabled:     cfg.UdpProxyEnabled,
+		UdpDestination: cfg.DestinationUdpHost,
+		UdpPacketsIn:   atomic.LoadUint64(&udpPacketsIn),
+		UdpPacketsOut:  atomic.LoadUint64(&udpPacketsOut),
+		UdpBytesIn:     atomic.LoadUint64(&udpBytesIn),
+		UdpBytesOut:    atomic.LoadUint64(&udpBytesOut),
+		CurrentUdpPayloadSize: atomic.LoadUint64(&currentUdpPayloadSize),
+	}
+
+	jsonData, err := json.Marshal(status)
+	if err != nil {
+		logger.Error.Printf("Failed to marshal status data: %v", err)
+		return
+	}
+
+	_, err = conn.Write(jsonData)
+	if err != nil {
+		logger.Error.Printf("Failed to write status data: %v", err)
+	}
+}
+
+const (
+	minUdpPayloadSize = 256
+	maxUdpPayloadSize = 1200 // A safe value to avoid IP fragmentation
+	udpSizeStep       = 32
+)
+
+var (
+	udpSessionMap   = make(map[string]*net.UDPAddr)
+	udpSessionMutex = &sync.Mutex{}
+
+	// Statistics counters
+	udpPacketsIn  uint64
+	udpPacketsOut uint64
+	udpBytesIn    uint64
+	udpBytesOut   uint64
+
+	// Dynamic payload size
+	currentUdpPayloadSize uint64 = minUdpPayloadSize
+)
 
 // RunUdpProxy starts a local UDP proxy to intercept and tunnel UDP packets.
 func RunUdpProxy(localPort int, httpClient *http.Client, remoteHost, remoteIP string, key []byte, cfg *config.Config) {
@@ -151,6 +234,15 @@ func RunUdpProxy(localPort int, httpClient *http.Client, remoteHost, remoteIP st
 }
 
 func handleUdpPacket(data []byte, remoteUdpAddr *net.UDPAddr, conn *net.UDPConn, httpClient *http.Client, remoteHost, remoteIP string, key []byte, cfg *config.Config) {
+	// Drop packets that are too large for the current dynamic window
+	maxSize := atomic.LoadUint64(&currentUdpPayloadSize)
+	if uint64(len(data)) > maxSize {
+		logger.Info.Printf("Dropping oversized UDP packet (%d > %d bytes)", len(data), maxSize)
+		return
+	}
+
+	atomic.AddUint64(&udpPacketsIn, 1)
+	atomic.AddUint64(&udpBytesIn, uint64(len(data)))
 	// Generate a unique session ID
 	sessionID := uuid.New().String()
 	udpSessionMutex.Lock()
@@ -200,9 +292,26 @@ func handleUdpPacket(data []byte, remoteUdpAddr *net.UDPAddr, conn *net.UDPConn,
 	udpConn.SetReadDeadline(time.Now().Add(10 * time.Second)) // Generous timeout
 	n, err := udpConn.Read(respBuf)
 	if err != nil {
-		logger.Error.Printf("Failed to read DNS response: %v", err)
+		// If we timed out, it's likely the packet was too large. Decrease the size.
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			newSize := atomic.LoadUint64(&currentUdpPayloadSize) / 2
+			if newSize < minUdpPayloadSize {
+				newSize = minUdpPayloadSize
+			}
+			atomic.StoreUint64(&currentUdpPayloadSize, newSize)
+			logger.Info.Printf("UDP timeout, decreasing payload size to %d", newSize)
+		} else {
+			logger.Error.Printf("Failed to read DNS response: %v", err)
+		}
 		return
 	}
+
+	// If the request was successful, we can try increasing the payload size
+	newSize := atomic.LoadUint64(&currentUdpPayloadSize) + udpSizeStep
+	if newSize > maxUdpPayloadSize {
+		newSize = maxUdpPayloadSize
+	}
+	atomic.StoreUint64(&currentUdpPayloadSize, newSize)
 
 	// Unwrap and decrypt response
 	respData, err := masquerade.UnwrapFromDnsResponse(respBuf[:n])
@@ -239,6 +348,9 @@ func handleUdpPacket(data []byte, remoteUdpAddr *net.UDPAddr, conn *net.UDPConn,
 	_, err = conn.WriteToUDP(responseData, originalAddr)
 	if err != nil {
 		logger.Error.Printf("Error writing to UDP conn: %v", err)
+	} else {
+		atomic.AddUint64(&udpPacketsOut, 1)
+		atomic.AddUint64(&udpBytesOut, uint64(len(responseData)))
 	}
 }
 

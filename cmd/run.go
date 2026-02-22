@@ -18,7 +18,7 @@ var tunnelListenKey string
 
 var runCmd = &cobra.Command{
 	Use:   "run",
-	Short: "Run the search tunnel client or server.",
+	Short: "Run the Elahe Tunnel client or server.",
 	Long:  `This command starts the tunnel. It automatically detects whether to run as an internal (client) or external (server) node based on the existing configuration.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := config.LoadConfig()
