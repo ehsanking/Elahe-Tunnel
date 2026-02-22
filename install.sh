@@ -70,28 +70,13 @@ if [ "$NEED_GO" = true ]; then
             echo "Found local go.tar.gz, using it..."
             cp go.tar.gz /tmp/go.tar.gz
         else
-            # 2. Try User-Provided Google Drive Link
-            GDRIVE_ID="11cP6W4zsH86EoidAxZGcGhqnVbeGd0AR"
-            echo "Attempting download from Google Drive (User Link)..."
+            # 2. Try User's GitHub Release (Primary Method)
+            URL="https://github.com/ehsanking/Elahe-Tunnel/releases/download/Go_1.24/go.tar.gz"
+            echo "Downloading Go 1.24 from GitHub Release..."
             
-            URL="https://drive.google.com/uc?export=download&id=${GDRIVE_ID}"
-            
-            # Initial request to handle confirmation token
-            curl -c /tmp/cookies -s -L "$URL" > /tmp/response
-            # Extract confirmation token if present
-            CONFIRM=$(grep -o 'confirm=[a-zA-Z0-9]*' /tmp/response | cut -d= -f2 | head -n1)
-            
-            if [ -n "$CONFIRM" ]; then
-                echo "  (Sending download confirmation...)"
-                curl -b /tmp/cookies -s -L -o /tmp/go.tar.gz "${URL}&confirm=${CONFIRM}"
-            else
-                mv /tmp/response /tmp/go.tar.gz
-            fi
-            rm -f /tmp/cookies /tmp/response
-
-            # Verify GDrive download
-            if ! file /tmp/go.tar.gz | grep -q 'gzip'; then
-                echo "⚠️ Google Drive download failed or blocked. Trying Aliyun Mirror..."
+            # Try downloading from GitHub
+            if ! curl -L -A 'Mozilla/5.0' --connect-timeout 15 --max-time 600 -o /tmp/go.tar.gz "$URL"; then
+                echo "⚠️ GitHub download failed. Switching to Aliyun Mirror..."
                 
                 # 3. Fallback to Aliyun Mirror
                 URL="https://mirrors.aliyun.com/golang/${LATEST_VER}.linux-${ARCH}.tar.gz"
@@ -101,8 +86,6 @@ if [ "$NEED_GO" = true ]; then
                     echo "❌ All download methods failed." >&2
                     exit 1
                 fi
-            else
-                echo "✅ Downloaded successfully from Google Drive."
             fi
         fi
         
@@ -134,27 +117,59 @@ fi
 # Ensure Go is in PATH for this session
 export PATH=$PATH:/usr/local/go/bin
 
-# 3. Download Source Code (ZIP method)
-echo -n "Downloading Elahe Tunnel source code..."
-(
-    rm -rf elahe-tunnel-main
-    rm -f main.zip
-    curl -s -L -o main.zip https://github.com/ehsanking/elahe-tunnel/archive/refs/heads/main.zip
-    unzip -q main.zip
-) &
-PID=$!
-spinner $PID
-wait $PID
+# 3. Download Source Code (Skipped if running inside repo)
+if [ -f "go.mod" ] && [ -f "main.go" ]; then
+    echo -e " ${GREEN}Running inside source directory. Skipping download.${NC}"
+else
+    echo -n "Downloading Elahe Tunnel source code..."
+    (
+        rm -rf elahe-tunnel-main
+        
+        # 1. Check for local manual upload
+        if [ -f "main.zip" ] && unzip -tq main.zip >/dev/null 2>&1; then
+            echo "Found local main.zip..." >> /dev/null
+        else
+            rm -f main.zip
+            # 2. Direct Download
+            if ! curl -s -L --connect-timeout 15 --max-time 300 -o main.zip "https://github.com/ehsanking/elahe-tunnel/archive/refs/heads/main.zip"; then
+                 rm -f main.zip
+            fi
+            
+            # 3. Proxy Download (if direct failed)
+            if [ ! -f "main.zip" ] || ! unzip -tq main.zip >/dev/null 2>&1; then
+                rm -f main.zip
+                # Using ghproxy mirror
+                curl -s -L --connect-timeout 15 --max-time 300 -o main.zip "https://mirror.ghproxy.com/https://github.com/ehsanking/elahe-tunnel/archive/refs/heads/main.zip"
+            fi
+        fi
 
-if [ ! -d "elahe-tunnel-main" ]; then
-    echo -e "\n${RED}Failed to download source code.${NC}"
-    exit 1
+        # Extract
+        if unzip -tq main.zip >/dev/null 2>&1; then
+            unzip -q main.zip
+        else
+            exit 1
+        fi
+    ) &
+    PID=$!
+    spinner $PID
+    wait $PID
+
+    if [ ! -d "elahe-tunnel-main" ]; then
+        echo -e "\n${RED}Failed to download source code. GitHub might be blocked.${NC}"
+        echo -e "${YELLOW}Solution: Download 'main.zip' from GitHub manually and upload it here.${NC}"
+        exit 1
+    fi
+    echo -e " ${GREEN}OK${NC}"
 fi
-echo -e " ${GREEN}OK${NC}"
 
 # 4. Compile
 echo -n "Compiling application..."
-cd elahe-tunnel-main
+
+# Enter directory only if we downloaded it
+if [ -d "elahe-tunnel-main" ]; then
+    cd elahe-tunnel-main
+fi
+
 (
     # Use goproxy.io to bypass potential restrictions for modules
     export GOPROXY=https://goproxy.io,direct
@@ -175,8 +190,12 @@ echo -e " ${GREEN}OK${NC}"
 echo -n "Installing binary..."
 mv elahe-tunnel /usr/local/bin/
 chmod +x /usr/local/bin/elahe-tunnel
-cd ..
-rm -rf elahe-tunnel-main main.zip
+
+# Cleanup only if we downloaded
+if [ -f "../install.sh" ]; then
+    cd ..
+    rm -rf elahe-tunnel-main main.zip
+fi
 echo -e " ${GREEN}OK${NC}"
 
 echo -e "\n${GREEN}✅ Installation Complete!${NC}"
