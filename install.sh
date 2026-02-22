@@ -54,32 +54,64 @@ else
 fi
 
 if [ "$NEED_GO" = true ]; then
-    echo -e "\n${YELLOW}Installing Go 1.24.0 (from Google Cloud Mirror)...${NC}"
+    echo -e "\n${YELLOW}Installing Go 1.24.0...${NC}"
     (
         rm -rf /usr/local/go
         
-        # Hardcoded version to avoid network blocking on go.dev
         LATEST_VER="go1.24.0"
-        
         ARCH=$(uname -m)
         case $ARCH in
             x86_64) ARCH="amd64" ;;
             aarch64) ARCH="arm64" ;;
         esac
         
-        URL="https://storage.googleapis.com/golang/${LATEST_VER}.linux-${ARCH}.tar.gz"
-        
-        # Download with error visibility
-        if ! curl -L -A 'Mozilla/5.0' -o /tmp/go.tar.gz "$URL"; then
-            echo "Download failed!" >&2
-            exit 1
+        # 1. Check for local file (Manual Upload Method)
+        if [ -f "go.tar.gz" ]; then
+            echo "Found local go.tar.gz, using it..."
+            cp go.tar.gz /tmp/go.tar.gz
+        else
+            # 2. Try User-Provided Google Drive Link
+            GDRIVE_ID="11cP6W4zsH86EoidAxZGcGhqnVbeGd0AR"
+            echo "Attempting download from Google Drive (User Link)..."
+            
+            URL="https://drive.google.com/uc?export=download&id=${GDRIVE_ID}"
+            
+            # Initial request to handle confirmation token
+            curl -c /tmp/cookies -s -L "$URL" > /tmp/response
+            # Extract confirmation token if present
+            CONFIRM=$(grep -o 'confirm=[a-zA-Z0-9]*' /tmp/response | cut -d= -f2 | head -n1)
+            
+            if [ -n "$CONFIRM" ]; then
+                echo "  (Sending download confirmation...)"
+                curl -b /tmp/cookies -s -L -o /tmp/go.tar.gz "${URL}&confirm=${CONFIRM}"
+            else
+                mv /tmp/response /tmp/go.tar.gz
+            fi
+            rm -f /tmp/cookies /tmp/response
+
+            # Verify GDrive download
+            if ! file /tmp/go.tar.gz | grep -q 'gzip'; then
+                echo "⚠️ Google Drive download failed or blocked. Trying Aliyun Mirror..."
+                
+                # 3. Fallback to Aliyun Mirror
+                URL="https://mirrors.aliyun.com/golang/${LATEST_VER}.linux-${ARCH}.tar.gz"
+                echo "Downloading from Aliyun Mirror ($URL)..."
+                
+                if ! curl -L -A 'Mozilla/5.0' -o /tmp/go.tar.gz "$URL"; then
+                    echo "❌ All download methods failed." >&2
+                    exit 1
+                fi
+            else
+                echo "✅ Downloaded successfully from Google Drive."
+            fi
         fi
         
+        # Verify and Install
         if file /tmp/go.tar.gz | grep -q 'gzip'; then
             tar -C /usr/local -xzf /tmp/go.tar.gz
             rm /tmp/go.tar.gz
         else
-            echo "Downloaded file is not a valid gzip archive." >&2
+            echo "File is not a valid gzip archive." >&2
             exit 1
         fi
     ) &
