@@ -363,6 +363,37 @@ func LoadConfig() (*Config, error) {
 }
 EOF
 
+cat <<'EOF' > cmd/VERSION
+v3.2.0
+EOF
+
+cat <<'EOF' > cmd/version.go
+package cmd
+
+import (
+	_ "embed"
+	"fmt"
+	"strings"
+
+	"github.com/spf13/cobra"
+)
+
+//go:embed VERSION
+var versionFile string
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print the version number of Elahe Tunnel",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Printf("Elahe Tunnel %s\n", strings.TrimSpace(versionFile))
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(versionCmd)
+}
+EOF
+
 cat <<'EOF' > cmd/setup.go
 package cmd
 
@@ -545,6 +576,7 @@ func Execute() {
 func init() {
 	rootCmd.AddCommand(setupCmd)
 	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(versionCmd)
 }
 EOF
 
