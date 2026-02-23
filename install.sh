@@ -28,6 +28,11 @@ echo -e "${GREEN}=========================================${NC}"
 # 1. Install Dependencies
 apt-get update -qq && apt-get install -y -qq unzip curl file &> /dev/null
 
+# Enable TCP Fast Open in kernel
+if [ -f /proc/sys/net/ipv4/tcp_fastopen ]; then
+    echo 3 > /proc/sys/net/ipv4/tcp_fastopen 2>/dev/null || true
+fi
+
 # 2. Download Source Code
 echo -n "Downloading Elahe Tunnel source code..."
 (
@@ -91,6 +96,8 @@ var (
 	tcpBytesOut          uint64
 	udpBytesIn           uint64
 	udpBytesOut          uint64
+	dnsQueries           uint64
+	dnsErrors            uint64
 	lastSuccessfulPing   int64
 )
 
@@ -105,6 +112,10 @@ func AddUdpBytesIn(n uint64)     { atomic.AddUint64(&udpBytesIn, n) }
 func AddUdpBytesOut(n uint64)    { atomic.AddUint64(&udpBytesOut, n) }
 func GetUdpBytesIn() uint64      { return atomic.LoadUint64(&udpBytesIn) }
 func GetUdpBytesOut() uint64     { return atomic.LoadUint64(&udpBytesOut) }
+func AddDnsQuery()               { atomic.AddUint64(&dnsQueries, 1) }
+func AddDnsError()               { atomic.AddUint64(&dnsErrors, 1) }
+func GetDnsQueries() uint64      { return atomic.LoadUint64(&dnsQueries) }
+func GetDnsErrors() uint64       { return atomic.LoadUint64(&dnsErrors) }
 func SetLastSuccessfulPing(t int64) { atomic.StoreInt64(&lastSuccessfulPing, t) }
 func GetLastSuccessfulPing() int64  { return atomic.LoadInt64(&lastSuccessfulPing) }
 
@@ -114,6 +125,8 @@ type Status struct {
 	TcpBytesOut          uint64 `json:"TcpBytesOut"`
 	UdpBytesIn           uint64 `json:"UdpBytesIn"`
 	UdpBytesOut          uint64 `json:"UdpBytesOut"`
+	DnsQueries           uint64 `json:"DnsQueries"`
+	DnsErrors            uint64 `json:"DnsErrors"`
 	LastSuccessfulPing   int64  `json:"LastSuccessfulPing"`
 	ConnectionHealth     string `json:"ConnectionHealth"`
 }
@@ -125,6 +138,8 @@ func GetStatus() Status {
 		TcpBytesOut:          GetTcpBytesOut(),
 		UdpBytesIn:           GetUdpBytesIn(),
 		UdpBytesOut:          GetUdpBytesOut(),
+		DnsQueries:           GetDnsQueries(),
+		DnsErrors:            GetDnsErrors(),
 		LastSuccessfulPing:   GetLastSuccessfulPing(),
 	}
 
@@ -155,6 +170,7 @@ func StartServer(cfg *config.Config) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", basicAuth(StatusHandler, cfg.WebPanelUser, cfg.WebPanelPass, "Elahe Tunnel Panel"))
+	mux.HandleFunc("/live", basicAuth(StatusHandler, cfg.WebPanelUser, cfg.WebPanelPass, "Elahe Tunnel Panel"))
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.WebPanelPort)
 	fmt.Printf("Web panel starting on http://%s\n", addr)
@@ -200,84 +216,365 @@ const statusTemplateHTML = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Elahe Tunnel Status</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; color: #333; margin: 0; padding: 40px; display: flex; justify-content: center; align-items: flex-start; min-height: 100vh; }
-        .container { background-color: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); max-width: 800px; width: 100%; }
-        h1 { color: #1a73e8; text-align: center; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 30px; }
-        .card { background-color: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 5px solid #1a73e8; }
-        .card h2 { margin-top: 0; font-size: 1.2em; color: #333; }
-        .card p { margin: 10px 0 0; font-size: 1em; color: #5f6368; }
-		.card p span { font-size: 1.6em; font-weight: 600; color: #1a73e8; display: block; margin-top: 4px;}
-		.rate { font-size: 0.8em !important; color: #5f6368 !important; font-weight: normal !important; }
-        .health { text-align: center; margin-top: 30px; padding: 15px; border-radius: 8px; font-size: 1.2em; font-weight: 600;}
-        .health.ok { background-color: #e8f5e9; color: #2e7d32; border-left: 5px solid #4caf50; }
-        .health.fail { background-color: #ffebee; color: #c62828; border-left: 5px solid #f44336; }
+        /* --- Theme Variables --- */
+        :root {
+            /* Colors */
+            --color-bg: #0f172a;
+            --color-surface: #1e293b;
+            --color-border: rgba(255, 255, 255, 0.1);
+            --color-text-primary: #f1f5f9;
+            --color-text-secondary: #94a3b8;
+            --color-accent: #3b82f6;
+            --color-success: #10b981;
+            --color-danger: #ef4444;
+            
+            /* Success/Danger Muted (for badges) */
+            --color-success-muted: rgba(6, 78, 59, 0.8);
+            --color-danger-muted: rgba(127, 29, 29, 0.8);
+            --color-success-text: #34d399;
+            --color-danger-text: #f87171;
+
+            /* Spacing & Sizing */
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 16px;
+            --spacing-lg: 24px;
+            --spacing-xl: 32px;
+            --container-max-width: 900px;
+
+            /* Effects */
+            --radius-sm: 8px;
+            --radius-md: 16px;
+            --radius-full: 9999px;
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --transition-base: all 0.3s ease;
+        }
+
+        /* --- Base Styles --- */
+        body { 
+            font-family: 'Inter', -apple-system, system-ui, sans-serif; 
+            background-color: var(--color-bg); 
+            color: var(--color-text-primary); 
+            margin: 0; 
+            padding: var(--spacing-lg); 
+            display: flex; 
+            justify-content: center; 
+            min-height: 100vh; 
+            line-height: 1.5;
+        }
+
+        /* --- Layout --- */
+        .container { 
+            max-width: var(--container-max-width); 
+            width: 100%; 
+            margin-top: 40px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: var(--spacing-xl);
+        }
+
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); 
+            gap: var(--spacing-lg); 
+        }
+
+        /* --- Typography --- */
+        h1 { 
+            font-size: 24px;
+            font-weight: 700;
+            margin: 0;
+            letter-spacing: -0.02em;
+        }
+
+        /* --- Components: Health Badge --- */
+        .health-badge {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: 6px 16px;
+            border-radius: var(--radius-full);
+            font-size: 14px;
+            font-weight: 600;
+            transition: var(--transition-base);
+        }
+
+        .health-badge.ok {
+            background-color: var(--color-success-muted);
+            color: var(--color-success-text);
+        }
+
+        .health-badge.fail {
+            background-color: var(--color-danger-muted);
+            color: var(--color-danger-text);
+        }
+
+        .pulse {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
+        }
+
+        .ok .pulse { animation: pulse-green 2s infinite; }
+        .fail .pulse { animation: pulse-red 2s infinite; }
+
+        /* --- Components: Cards & Stats --- */
+        .card { 
+            background-color: var(--color-surface); 
+            padding: var(--spacing-lg); 
+            border-radius: var(--radius-md); 
+            box-shadow: var(--shadow-md);
+            border: 1px solid var(--color-border);
+        }
+
+        .card h2 { 
+            margin: 0 0 var(--spacing-md) 0; 
+            font-size: 14px; 
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--color-text-secondary); 
+        }
+
+        .stat-group {
+            margin-bottom: var(--spacing-md);
+        }
+
+        .stat-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: var(--color-text-secondary);
+            margin-bottom: var(--spacing-xs);
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--color-text-primary);
+            display: flex;
+            align-items: baseline;
+            gap: var(--spacing-xs);
+        }
+
+        .stat-unit {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--color-text-secondary);
+        }
+
+        .rate { 
+            font-size: 12px; 
+            color: var(--color-success); 
+            font-weight: 600;
+            margin-top: var(--spacing-xs);
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-xs);
+        }
+
+        /* --- Indicators --- */
+        .live-indicator {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background-color: var(--color-danger);
+            border-radius: 50%;
+            margin-right: var(--spacing-xs);
+            animation: blink 1s infinite;
+        }
+
+        /* --- Animations --- */
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Elahe Tunnel Status</h1>
-		<div id="health-status" class="health">
-			Checking connection...
-        </div>
+        <header>
+            <h1>Elahe Tunnel <span style="font-size: 12px; color: var(--color-text-secondary); font-weight: 400; margin-left: 8px;"><span class="live-indicator"></span>LIVE</span></h1>
+            <div id="health-status" class="health-badge">
+                <div class="pulse"></div>
+                <div style="display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2;">
+                    <span id="health-text">Checking...</span>
+                    <span id="last-seen" style="font-size: 10px; opacity: 0.7; font-weight: 400;"></span>
+                </div>
+            </div>
+        </header>
+
         <div class="grid">
             <div class="card">
-                <h2>TCP</h2>
-				<p>Active Connections: <span id="tcp-active">0</span></p>
-				<p>Data In: <span id="tcp-in">0 B</span> <span id="tcp-in-rate" class="rate"></span></p>
-				<p>Data Out: <span id="tcp-out">0 B</span> <span id="tcp-out-rate" class="rate"></span></p>
+                <h2>TCP Traffic</h2>
+                <div class="stat-group">
+                    <div class="stat-label">Active Connections</div>
+                    <div class="stat-value" id="tcp-active">0</div>
+                </div>
+                <div class="stat-group">
+                    <div class="stat-label">Data Inbound</div>
+                    <div class="stat-value" id="tcp-in">0 <span class="stat-unit">B</span></div>
+                    <div id="tcp-in-rate" class="rate"></div>
+                </div>
+                <div class="stat-group">
+                    <div class="stat-label">Data Outbound</div>
+                    <div class="stat-value" id="tcp-out">0 <span class="stat-unit">B</span></div>
+                    <div id="tcp-out-rate" class="rate"></div>
+                </div>
             </div>
+
             <div class="card">
-                <h2>UDP</h2>
-				<p>Active Connections: <span id="udp-active">N/A</span></p> 
-                <p>Data In: <span id="udp-in">0 B</span> <span id="udp-in-rate" class="rate"></span></p>
-                <p>Data Out: <span id="udp-out">0 B</span> <span id="udp-out-rate" class="rate"></span></p>
+                <h2>UDP Traffic</h2>
+                <div class="stat-group">
+                    <div class="stat-label">Status</div>
+                    <div class="stat-value" style="font-size: 18px;">Active</div>
+                </div>
+                <div class="stat-group">
+                    <div class="stat-label">Data Inbound</div>
+                    <div class="stat-value" id="udp-in">0 <span class="stat-unit">B</span></div>
+                    <div id="udp-in-rate" class="rate"></div>
+                </div>
+                <div class="stat-group">
+                    <div class="stat-label">Data Outbound</div>
+                    <div class="stat-value" id="udp-out">0 <span class="stat-unit">B</span></div>
+                    <div id="udp-out-rate" class="rate"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Total Traffic</h2>
+                <div class="stat-group">
+                    <div class="stat-label">Total Data Transferred</div>
+                    <div class="stat-value" id="total-bytes">0 <span class="stat-unit">B</span></div>
+                </div>
+                <div class="stat-group">
+                    <div class="stat-label">Combined Rate</div>
+                    <div id="total-rate" class="rate" style="font-size: 16px;"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>DNS Statistics</h2>
+                <div class="stat-group">
+                    <div class="stat-label">Total Queries</div>
+                    <div class="stat-value" id="dns-queries">0</div>
+                </div>
+                <div class="stat-group">
+                    <div class="stat-label">Error Rate</div>
+                    <div class="stat-value" id="dns-error-rate">0.0%</div>
+                </div>
+                <div class="stat-group">
+                    <div class="stat-label">Errors</div>
+                    <div class="stat-value" id="dns-errors" style="color: var(--color-danger);">0</div>
+                </div>
             </div>
         </div>
     </div>
 
 	<script>
 		let lastStats = null;
-		const fetchInterval = 5000; // 5 seconds
+		const fetchInterval = 1000;
 
-		function formatBytes(bytes, decimals = 2) {
-			if (bytes === 0) return '0 B';
+		function formatBytes(bytes) {
+			if (bytes === 0) return { val: '0', unit: 'B' };
 			const k = 1024;
-			const dm = decimals < 0 ? 0 : decimals;
-			const sizes = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+			const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
 			const i = Math.floor(Math.log(bytes) / Math.log(k));
-			return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+			return {
+                val: parseFloat((bytes / Math.pow(k, i)).toFixed(2)),
+                unit: sizes[i]
+            };
 		}
 
+        function setStat(id, bytes) {
+            const f = formatBytes(bytes);
+            document.getElementById(id).innerHTML = f.val + ' <span class="stat-unit">' + f.unit + '</span>';
+        }
+
+        function setRate(id, current, last, dt, icon) {
+            const rate = (current - last) / dt;
+            if (rate > 0) {
+                const f = formatBytes(rate);
+                document.getElementById(id).textContent = icon + ' ' + f.val + ' ' + f.unit + '/s';
+            } else {
+                document.getElementById(id).textContent = '';
+            }
+        }
+
 		function updateStats() {
-			fetch('/status?json=true')
+			fetch('/?json=true')
 				.then(response => response.json())
 				.then(data => {
-					const healthDiv = document.getElementById('health-status');
-					healthDiv.textContent = data.ConnectionHealth;
-					healthDiv.className = 'health ' + (data.ConnectionHealth === 'Connected' ? 'ok' : 'fail');
+					const healthBadge = document.getElementById('health-status');
+                    const healthText = document.getElementById('health-text');
+                    const lastSeen = document.getElementById('last-seen');
+                    
+					healthText.textContent = data.ConnectionHealth;
+					healthBadge.className = 'health-badge ' + (data.ConnectionHealth === 'Connected' ? 'ok' : 'fail');
+                    
+                    if (data.LastSuccessfulPing > 0) {
+                        const secondsAgo = Math.floor(Date.now() / 1000 - data.LastSuccessfulPing);
+                        lastSeen.textContent = secondsAgo < 5 ? 'Just now' : secondsAgo + 's ago';
+                    } else {
+                        lastSeen.textContent = 'Never';
+                    }
 
 					document.getElementById('tcp-active').textContent = data.TcpActiveConnections;
 					
-					document.getElementById('tcp-in').textContent = formatBytes(data.TcpBytesIn);
-					document.getElementById('tcp-out').textContent = formatBytes(data.TcpBytesOut);
-					document.getElementById('udp-in').textContent = formatBytes(data.UdpBytesIn);
-					document.getElementById('udp-out').textContent = formatBytes(data.UdpBytesOut);
+					setStat('tcp-in', data.TcpBytesIn);
+					setStat('tcp-out', data.TcpBytesOut);
+					setStat('udp-in', data.UdpBytesIn);
+					setStat('udp-out', data.UdpBytesOut);
+
+                    const totalBytes = data.TcpBytesIn + data.TcpBytesOut + data.UdpBytesIn + data.UdpBytesOut;
+                    setStat('total-bytes', totalBytes);
+
+					document.getElementById('dns-queries').textContent = data.DnsQueries;
+					document.getElementById('dns-errors').textContent = data.DnsErrors;
+
+					if (data.DnsQueries > 0) {
+						const rate = (data.DnsErrors / data.DnsQueries) * 100;
+						document.getElementById('dns-error-rate').textContent = rate.toFixed(1) + '%';
+						document.getElementById('dns-error-rate').style.color = rate > 10 ? 'var(--color-danger)' : 'var(--color-success)';
+					} else {
+						document.getElementById('dns-error-rate').textContent = '0.0%';
+						document.getElementById('dns-error-rate').style.color = 'var(--color-text-primary)';
+					}
 
 					if (lastStats) {
-						const intervalSeconds = fetchInterval / 1000;
-						document.getElementById('tcp-in-rate').textContent = '(' + formatBytes((data.TcpBytesIn - lastStats.TcpBytesIn) / intervalSeconds) + '/s)';
-						document.getElementById('tcp-out-rate').textContent = '(' + formatBytes((data.TcpBytesOut - lastStats.TcpBytesOut) / intervalSeconds) + '/s)';
-						document.getElementById('udp-in-rate').textContent = '(' + formatBytes((data.UdpBytesIn - lastStats.UdpBytesIn) / intervalSeconds) + '/s)';
-						document.getElementById('udp-out-rate').textContent = '(' + formatBytes((data.UdpBytesOut - lastStats.UdpBytesOut) / intervalSeconds) + '/s)';
+						const dt = fetchInterval / 1000;
+						setRate('tcp-in-rate', data.TcpBytesIn, lastStats.TcpBytesIn, dt, '↑');
+						setRate('tcp-out-rate', data.TcpBytesOut, lastStats.TcpBytesOut, dt, '↓');
+						setRate('udp-in-rate', data.UdpBytesIn, lastStats.UdpBytesIn, dt, '↑');
+						setRate('udp-out-rate', data.UdpBytesOut, lastStats.UdpBytesOut, dt, '↓');
+
+                        const lastTotal = lastStats.TcpBytesIn + lastStats.TcpBytesOut + lastStats.UdpBytesIn + lastStats.UdpBytesOut;
+                        setRate('total-rate', totalBytes, lastTotal, dt, '⇄');
 					}
 					lastStats = data;
 				})
-				.catch(error => {
-					console.error('Error fetching stats:', error);
-					const healthDiv = document.getElementById('health-status');
-					healthDiv.textContent = 'Error fetching status';
-					healthDiv.className = 'health fail';
+				.catch(err => {
+					document.getElementById('health-text').textContent = 'Offline';
+					document.getElementById('health-status').className = 'health-badge fail';
 				});
 		}
 
@@ -626,6 +923,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ehsanking/elahe-tunnel/internal/config"
@@ -646,6 +944,12 @@ func RunClient(cfg *config.Config) error {
 	netDialer := &net.Dialer{
 		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,
+		Control: func(network, address string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				// TCP_FASTOPEN_CONNECT = 30
+				syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, 30, 1)
+			})
+		},
 	}
 
 	tr := &http.Transport{
@@ -658,6 +962,10 @@ func RunClient(cfg *config.Config) error {
 	httpClient := &http.Client{Transport: tr}
 
 	go manageConnection(httpClient, cfg, key)
+
+	if cfg.DnsProxyEnabled {
+		go runDnsProxy(cfg, httpClient, key)
+	}
 
 	localListener, err := net.Listen("tcp", "127.0.0.1:1080")
 	if err != nil {
@@ -745,6 +1053,73 @@ func ping(httpClient *http.Client, cfg *config.Config, key []byte) {
 	}
 }
 
+func runDnsProxy(cfg *config.Config, httpClient *http.Client, key []byte) {
+	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:53")
+	if err != nil {
+		logger.Error.Printf("Failed to resolve DNS proxy address: %v\n", err)
+		return
+	}
+
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		logger.Error.Printf("Failed to listen for DNS queries: %v\n", err)
+		return
+	}
+	defer conn.Close()
+
+	logger.Info.Println("DNS proxy listening on 127.0.0.1:53")
+
+	buf := make([]byte, 512)
+	for {
+		n, remoteAddr, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			continue
+		}
+
+		stats.AddDnsQuery()
+		go func(query []byte, addr *net.UDPAddr) {
+			resp, err := forwardDnsQuery(query, cfg, httpClient, key)
+			if err != nil {
+				stats.AddDnsError()
+				return
+			}
+			conn.WriteToUDP(resp, addr)
+		}(append([]byte(nil), buf[:n]...), remoteAddr)
+	}
+}
+
+func forwardDnsQuery(query []byte, cfg *config.Config, httpClient *http.Client, key []byte) ([]byte, error) {
+	// Encrypt DNS query using AES-GCM (via crypto package)
+	encrypted, err := crypto.Encrypt(query, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt DNS query: %v", err)
+	}
+
+	req, err := masquerade.WrapInHttpRequest(encrypted, cfg.RemoteHost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to wrap DNS query in HTTP request: %v", err)
+	}
+	req.Header.Set("X-Tunnel-Type", "dns")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send DNS query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status %d", resp.StatusCode)
+	}
+
+	encryptedResp, err := masquerade.UnwrapFromHttpResponse(resp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unwrap DNS response: %v", err)
+	}
+
+	// Decrypt DNS response using AES-GCM (via crypto package)
+	return crypto.Decrypt(encryptedResp, key)
+}
+
 // --- SOCKS5 Helper Functions ---
 func socks5Handshake(conn net.Conn) error {
 	buf := make([]byte, 257)
@@ -780,10 +1155,12 @@ package tunnel
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"io"
 	"net"
 	"net/http"
+	"syscall"
 	"time"
 
 	"github.com/ehsanking/elahe-tunnel/internal/crypto"
@@ -814,8 +1191,22 @@ func RunServer(key []byte) error {
 
 	go runDtlsServer(key)
 
-	logger.Info.Println("External server listening on :443")
-	return http.ListenAndServeTLS(":443", "cert.pem", "key.pem", nil)
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				// TCP_FASTOPEN = 23
+				syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, 23, 1)
+			})
+		},
+	}
+
+	ln, err := lc.Listen(context.Background(), "tcp", ":443")
+	if err != nil {
+		return err
+	}
+
+	logger.Info.Println("External server listening on :443 (TCP Fast Open enabled)")
+	return http.ServeTLS(ln, nil, "cert.pem", "key.pem")
 }
 
 func runDtlsServer(key []byte) {
@@ -857,6 +1248,12 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		encrypted, _ := masquerade.UnwrapFromHttpRequest(r)
 		decrypted, _ := crypto.Decrypt(encrypted, key)
+
+		if r.Header.Get("X-Tunnel-Type") == "dns" {
+			handleDnsRequest(w, decrypted, key)
+			return
+		}
+
 		stats.AddTcpBytesIn(uint64(len(decrypted)))
 
 		parts := bytes.SplitN(decrypted, []byte("\n"), 2)
@@ -873,6 +1270,38 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 
 		masquerade.WrapInRandomHttpResponse(encryptedResp).Write(w)
 	}
+}
+
+func handleDnsRequest(w http.ResponseWriter, query []byte, key []byte) {
+	stats.AddDnsQuery()
+	// Forward to a real DNS server
+	dnsServer := "8.8.8.8:53"
+	conn, err := net.Dial("udp", dnsServer)
+	if err != nil {
+		stats.AddDnsError()
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	defer conn.Close()
+
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	_, err = conn.Write(query)
+	if err != nil {
+		stats.AddDnsError()
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	resp := make([]byte, 512)
+	n, err := conn.Read(resp)
+	if err != nil {
+		stats.AddDnsError()
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	encryptedResp, _ := crypto.Encrypt(resp[:n], key)
+	masquerade.WrapInRandomHttpResponse(encryptedResp).Write(w)
 }
 EOF
 
@@ -903,4 +1332,4 @@ echo -e " ${GREEN}OK${NC}"
 echo -e "\n${GREEN}✅ Installation Complete!${NC}"
 echo -e "Starting setup wizard...\n"
 sleep 1
-elahe-tunnel setup
+elahe-tunnel setup external
