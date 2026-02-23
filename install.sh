@@ -22,7 +22,7 @@ spinner() {
 }
 
 echo -e "${GREEN}=========================================${NC}"
-echo -e "${GREEN}   Elahe Tunnel Single-Line Installer v3.0 (Final) ${NC}"
+echo -e "${GREEN}   Elahe Tunnel Single-Line Installer v3.1 (Final) ${NC}"
 echo -e "${GREEN}=========================================${NC}"
 
 # 1. Install Dependencies
@@ -134,6 +134,7 @@ func StartServer(cfg *config.Config) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", basicAuth(StatusHandler, cfg.WebPanelUser, cfg.WebPanelPass, "Elahe Tunnel Panel"))
+	mux.HandleFunc("/status", basicAuth(JsonStatusHandler, cfg.WebPanelUser, cfg.WebPanelPass, "Elahe Tunnel Panel"))
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.WebPanelPort)
 	fmt.Printf("Web panel starting on http://%s\n", addr)
@@ -228,7 +229,7 @@ const statusTemplate = `
 </html>
 `
 
-func StatusHandler(w http.ResponseWriter, r *http.Request) {
+func getStatus() stats.Status {
 	status := stats.Status{
 		TcpActiveConnections: stats.GetTcpActiveConnections(),
 		TcpBytesIn:           stats.GetTcpBytesIn(),
@@ -243,6 +244,11 @@ func StatusHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		status.ConnectionHealth = "Disconnected"
 	}
+	return status
+}
+
+func StatusHandler(w http.ResponseWriter, r *http.Request) {
+	status := getStatus()
 
 	if r.Header.Get("Accept") == "application/json" {
 		w.Header().Set("Content-Type", "application/json")
@@ -281,155 +287,11 @@ func StatusHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tmpl.Execute(w, data)
 }
-EOF
 
-cat <<'EOF' > internal/config/config.go
-package config
-
-import (
-	"encoding/json"
-	"os"
-)
-
-const ConfigFileName = "search_tunnel_config.json"
-
-type Config struct {
-	NodeType           string `json:"node_type"`
-	ConnectionKey      string `json:"connection_key"`
-	RemoteHost         string `json:"remote_host,omitempty"`
-	DnsProxyEnabled    bool   `json:"dns_proxy_enabled,omitempty"`
-	DestinationHost    string `json:"destination_host,omitempty"`
-	UdpProxyEnabled    bool   `json:"udp_proxy_enabled,omitempty"`
-	DestinationUdpHost string `json:"destination_udp_host,omitempty"`
-	TunnelListenAddr   string `json:"tunnel_listen_addr,omitempty"`
-	TunnelListenKey    string `json:"tunnel_listen_key,omitempty"`
-	WebPanelEnabled    bool   `json:"web_panel_enabled,omitempty"`
-	WebPanelUser       string `json:"web_panel_user,omitempty"`
-	WebPanelPass       string `json:"web_panel_pass,omitempty"`
-	WebPanelPort       int    `json:"web_panel_port,omitempty"`
-}
-
-func SaveConfig(cfg *Config) error {
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(ConfigFileName, data, 0600)
-}
-
-func LoadConfig() (*Config, error) {
-	data, err := os.ReadFile(ConfigFileName)
-	if err != nil {
-		return nil, err
-	}
-
-	var cfg Config
-	err = json.Unmarshal(data, &cfg)
-	if err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-EOF
-
-cat <<'EOF' > cmd/setup.go
-package cmd
-
-import (
-	"bufio"
-	"fmt"
-	"os"
-	"strconv"
-	"strings"
-
-	"github.com/ehsanking/elahe-tunnel/internal/config"
-	"github.com/ehsanking/elahe-tunnel/internal/crypto"
-	"github.com/spf13/cobra"
-)
-
-var setupCmd = &cobra.Command{
-	Use:   "setup [internal | external]",
-	Short: "Initial setup for the Elahe Tunnel.",
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		setupType := args[0]
-		switch setupType {
-		case "internal":
-			setupInternal()
-		case "external":
-			setupExternal()
-		default:
-			fmt.Printf("Error: Invalid setup type '%s'.\n", setupType)
-			os.Exit(1)
-		}
-	},
-}
-
-func setupExternal() {
-	fmt.Println("Setting up as an external server...")
-	key, _ := crypto.GenerateKey()
-	encodedKey := crypto.EncodeKeyToBase64(key)
-	certPEM, keyPEM, _ := crypto.GenerateTLSConfig()
-	os.WriteFile("cert.pem", certPEM, 0644)
-	os.WriteFile("key.pem", keyPEM, 0600)
-
-	cfg := &config.Config{
-		NodeType:      "external",
-		ConnectionKey: encodedKey,
-	}
-	config.SaveConfig(cfg)
-
-	fmt.Println("✅ External server setup complete.")
-	fmt.Printf("\n🔑 Your connection key is:\n\n    %s\n\n", encodedKey)
-}
-
-func setupInternal() {
-	fmt.Println("Setting up as an internal server...")
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Print("Enter the IP of your external server: ")
-	host, _ := reader.ReadString('\n')
-
-	fmt.Print("Enter the connection key: ")
-	key, _ := reader.ReadString('\n')
-
-	cfg := &config.Config{
-		NodeType:      "internal",
-		ConnectionKey: strings.TrimSpace(key),
-		RemoteHost:    strings.TrimSpace(host),
-	}
-
-	fmt.Print("Enable Web Panel? (y/N): ")
-	enableWeb, _ := reader.ReadString('\n')
-	if strings.TrimSpace(strings.ToLower(enableWeb)) == "y" {
-		cfg.WebPanelEnabled = true
-		fmt.Print("Enter Web Panel Port (default 8080): ")
-		portStr, _ := reader.ReadString('\n')
-		port, err := strconv.Atoi(strings.TrimSpace(portStr))
-		if err != nil {
-			cfg.WebPanelPort = 8080
-		} else {
-			cfg.WebPanelPort = port
-		}
-
-		fmt.Print("Enter Web Panel Username (default admin): ")
-		user, _ := reader.ReadString('\n')
-		cfg.WebPanelUser = strings.TrimSpace(user)
-		if cfg.WebPanelUser == "" {
-			cfg.WebPanelUser = "admin"
-		}
-
-		fmt.Print("Enter Web Panel Password: ")
-		pass, _ := reader.ReadString('\n')
-		cfg.WebPanelPass = strings.TrimSpace(pass)
-	}
-
-	config.SaveConfig(cfg)
-	fmt.Println("\n✅ Internal server setup complete.")
-}
-
-func init() {
-	rootCmd.AddCommand(setupCmd)
+func JsonStatusHandler(w http.ResponseWriter, r *http.Request) {
+	status := getStatus()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
 }
 EOF
 

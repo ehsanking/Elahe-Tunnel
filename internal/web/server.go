@@ -13,7 +13,8 @@ func StartServer(cfg *config.Config) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", basicAuth(StatusHandler, cfg.WebPanelUser, cfg.WebPanelPass, "Elahe Tunnel Panel"))
+		mux.HandleFunc("/", basicAuth(StatusHandler, cfg.WebPanelUser, cfg.WebPanelPass, "Elahe Tunnel Panel"))
+	mux.HandleFunc("/status", basicAuth(JsonStatusHandler, cfg.WebPanelUser, cfg.WebPanelPass, "Elahe Tunnel Panel"))
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.WebPanelPort)
 	fmt.Printf("Web panel starting on http://%s\n", addr)

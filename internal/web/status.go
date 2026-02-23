@@ -66,7 +66,7 @@ const statusTemplate = `
 </html>
 `
 
-func StatusHandler(w http.ResponseWriter, r *http.Request) {
+func getStatus() stats.Status {
 	status := stats.Status{
 		TcpActiveConnections: stats.GetTcpActiveConnections(),
 		TcpBytesIn:           stats.GetTcpBytesIn(),
@@ -81,8 +81,13 @@ func StatusHandler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		status.ConnectionHealth = "Disconnected"
 	}
+	return status
+}
 
-	// Serve JSON if requested
+func StatusHandler(w http.ResponseWriter, r *http.Request) {
+	status := getStatus()
+
+	// Serve JSON if requested from the root path
 	if r.Header.Get("Accept") == "application/json" {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(status)
@@ -124,4 +129,11 @@ func StatusHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tmpl.Execute(w, data)
+}
+
+// JsonStatusHandler serves only the JSON status.
+func JsonStatusHandler(w http.ResponseWriter, r *http.Request) {
+	status := getStatus()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
 }
