@@ -273,6 +273,12 @@ if [ -f "cmd/status.go" ]; then
     sed -i '/"github.com\/ehsanking\/elahe-tunnel\/internal\/masquerade"/d' cmd/status.go
 fi
 
+# Execute the web panel patch script if it exists
+if [ -f "/tmp/web_panel_patch.sh" ]; then
+    chmod +x /tmp/web_panel_patch.sh
+    /tmp/web_panel_patch.sh
+fi
+
 echo -e " ${GREEN}OK${NC}"
 # ---------------------------------
 
@@ -303,6 +309,7 @@ chmod +x /usr/local/bin/elahe-tunnel
 if [ -f "../install.sh" ]; then
     cd ..
     rm -rf Elahe-Tunnel-main main.zip
+rm -f /tmp/web_panel_patch.sh
 fi
 echo -e " ${GREEN}OK${NC}"
 

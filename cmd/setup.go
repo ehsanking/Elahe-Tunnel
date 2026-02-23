@@ -94,6 +94,36 @@ func setupInternal() {
 		RemoteHost:    host,
 	}
 
+	fmt.Print("Do you want to enable the Web Panel? (y/N): ")
+	enableWeb, _ := reader.ReadString('\n')
+	enableWeb = strings.TrimSpace(strings.ToLower(enableWeb))
+
+	if enableWeb == "y" || enableWeb == "yes" {
+		cfg.WebPanelEnabled = true
+
+		fmt.Print("Enter Web Panel Port (default 8080): ")
+		portStr, _ := reader.ReadString('\n')
+		portStr = strings.TrimSpace(portStr)
+		if portStr == "" {
+			cfg.WebPanelPort = 8080
+		} else {
+			fmt.Sscanf(portStr, "%d", &cfg.WebPanelPort)
+		}
+
+		fmt.Print("Enter Web Panel Username (default admin): ")
+		user, _ := reader.ReadString('\n')
+		user = strings.TrimSpace(user)
+		if user == "" {
+			cfg.WebPanelUser = "admin"
+		} else {
+			cfg.WebPanelUser = user
+		}
+
+		fmt.Print("Enter Web Panel Password: ")
+		pass, _ := reader.ReadString('\n')
+		cfg.WebPanelPass = strings.TrimSpace(pass)
+	}
+
 	if err := config.SaveConfig(cfg); err != nil {
 		fmt.Println("Error saving configuration:", err)
 		os.Exit(1)
