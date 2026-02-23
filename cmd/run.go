@@ -1,64 +1,52 @@
 package cmd
 
 import (
+	"github.com/ehsanking/elahe-tunnel/internal/crypto"
 	"fmt"
-	"os"
 
 	"github.com/ehsanking/elahe-tunnel/internal/config"
 	"github.com/ehsanking/elahe-tunnel/internal/tunnel"
 	"github.com/spf13/cobra"
 )
 
-var dnsProxyEnabled bool
-var destinationHost string
-var udpProxyEnabled bool
-var destinationUdpHost string
-var tunnelListenAddr string
-var tunnelListenKey string
-
 var runCmd = &cobra.Command{
 	Use:   "run",
-	Short: "Run the Elahe Tunnel client or server.",
-	Long:  `This command starts the tunnel. It automatically detects whether to run as an internal (client) or external (server) node based on the existing configuration.`,
+	Short: "Run the Elahe Tunnel.",
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg, err := config.LoadConfig()
 		if err != nil {
-			fmt.Println("Error loading configuration. Please run 'setup' first.", err)
-			os.Exit(1)
+			fmt.Printf("Error loading config: %v\n", err)
+			return
+		}
+
+		// Override config with flags if they are set
+		if cmd.Flags().Changed("remote-host") {
+			cfg.RemoteHost, _ = cmd.Flags().GetString("remote-host")
+		}
+		if cmd.Flags().Changed("web-panel-port") {
+			cfg.WebPanelPort, _ = cmd.Flags().GetInt("web-panel-port")
+		}
+		if cmd.Flags().Changed("dns-proxy-enabled") {
+			cfg.DnsProxyEnabled, _ = cmd.Flags().GetBool("dns-proxy-enabled")
 		}
 
 		switch cfg.NodeType {
 		case "internal":
-			fmt.Println("Starting tunnel in internal (client) mode...")
-			cfg.DnsProxyEnabled = dnsProxyEnabled
-			cfg.DestinationHost = destinationHost
-			cfg.UdpProxyEnabled = udpProxyEnabled
-			cfg.DestinationUdpHost = destinationUdpHost
-			cfg.TunnelListenAddr = tunnelListenAddr
-			cfg.TunnelListenKey = tunnelListenKey
-			if err := tunnel.RunClient(cfg); err != nil {
-				fmt.Println("Client error:", err)
-				os.Exit(1)
-			}
+			tunnel.RunClient(cfg)
 		case "external":
-			fmt.Println("Starting tunnel in external (server) mode...")
-			if err := tunnel.RunServer(cfg); err != nil {
-				fmt.Println("Server error:", err)
-				os.Exit(1)
-			}
+			key, _ := crypto.DecodeBase64Key(cfg.ConnectionKey)
+			tunnel.RunServer(key)
 		default:
-			fmt.Printf("Unknown node type '%s' in configuration.\n", cfg.NodeType)
-			os.Exit(1)
+			fmt.Printf("Error: Invalid node type '%s'. Please run setup first.\n", cfg.NodeType)
 		}
 	},
 }
 
 func init() {
-	runCmd.Flags().BoolVar(&dnsProxyEnabled, "dns", false, "Enable the local DNS proxy to tunnel DNS queries")
-	runCmd.Flags().StringVar(&destinationHost, "dest", "tcpbin.com:4242", "The destination host and port to tunnel to")
-	runCmd.Flags().BoolVar(&udpProxyEnabled, "udp", false, "Enable the local UDP proxy to tunnel UDP packets")
-	runCmd.Flags().StringVar(&destinationUdpHost, "dest-udp", "8.8.8.8:53", "The destination UDP host and port to tunnel to")
-	runCmd.Flags().StringVar(&tunnelListenAddr, "listen-tunnel-addr", "", "(Proxy mode) Address to listen for incoming tunnel connections")
-	runCmd.Flags().StringVar(&tunnelListenKey, "listen-tunnel-key", "", "(Proxy mode) Connection key for incoming tunnel connections")
 	rootCmd.AddCommand(runCmd)
+
+	// Add flags for overriding config values
+	runCmd.Flags().String("remote-host", "", "Override the remote host IP or domain")
+	runCmd.Flags().Int("web-panel-port", 0, "Override the web panel port")
+	runCmd.Flags().Bool("dns-proxy-enabled", false, "Override the DNS proxy setting")
 }

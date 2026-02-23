@@ -22,7 +22,7 @@ spinner() {
 }
 
 echo -e "${GREEN}=========================================${NC}"
-echo -e "${GREEN}   Elahe Tunnel Single-Line Installer v3.1 (Final) ${NC}"
+echo -e "${GREEN}   Elahe Tunnel Single-Line Installer v3.2 (Final) ${NC}"
 echo -e "${GREEN}=========================================${NC}"
 
 # 1. Install Dependencies
@@ -295,7 +295,424 @@ func JsonStatusHandler(w http.ResponseWriter, r *http.Request) {
 }
 EOF
 
-# ... (and so on for all other files)
+cat <<'EOF' > internal/config/config.go
+package config
+
+import (
+	"encoding/json"
+	"os"
+)
+
+const ConfigFileName = "search_tunnel_config.json"
+
+type Config struct {
+	NodeType           string `json:"node_type"`
+	ConnectionKey      string `json:"connection_key"`
+	RemoteHost         string `json:"remote_host,omitempty"`
+	DnsProxyEnabled    bool   `json:"dns_proxy_enabled,omitempty"`
+	DestinationHost    string `json:"destination_host,omitempty"`
+	UdpProxyEnabled    bool   `json:"udp_proxy_enabled,omitempty"`
+	DestinationUdpHost string `json:"destination_udp_host,omitempty"`
+	TunnelListenAddr   string `json:"tunnel_listen_addr,omitempty"`
+	TunnelListenKey    string `json:"tunnel_listen_key,omitempty"`
+	WebPanelEnabled    bool   `json:"web_panel_enabled,omitempty"`
+	WebPanelUser       string `json:"web_panel_user,omitempty"`
+	WebPanelPass       string `json:"web_panel_pass,omitempty"`
+	WebPanelPort       int    `json:"web_panel_port,omitempty"`
+}
+
+func SaveConfig(cfg *Config) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(ConfigFileName, data, 0600)
+}
+
+func LoadConfig() (*Config, error) {
+	data, err := os.ReadFile(ConfigFileName)
+	if err != nil {
+		return nil, err
+	}
+
+	var cfg Config
+	err = json.Unmarshal(data, &cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+EOF
+
+cat <<'EOF' > cmd/setup.go
+package cmd
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/ehsanking/elahe-tunnel/internal/config"
+	"github.com/ehsanking/elahe-tunnel/internal/crypto"
+	"github.com/spf13/cobra"
+)
+
+var setupCmd = &cobra.Command{
+	Use:   "setup [internal | external]",
+	Short: "Initial setup for the Elahe Tunnel.",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		setupType := args[0]
+		switch setupType {
+		case "internal":
+			setupInternal()
+		case "external":
+			setupExternal()
+		default:
+			fmt.Printf("Error: Invalid setup type '%s'.\n", setupType)
+			os.Exit(1)
+		}
+	},
+}
+
+func setupExternal() {
+	fmt.Println("Setting up as an external server...")
+	key, _ := crypto.GenerateKey()
+	encodedKey := crypto.EncodeKeyToBase64(key)
+	certPEM, keyPEM, _ := crypto.GenerateTLSConfig()
+	os.WriteFile("cert.pem", certPEM, 0644)
+	os.WriteFile("key.pem", keyPEM, 0600)
+
+	cfg := &config.Config{
+		NodeType:      "external",
+		ConnectionKey: encodedKey,
+	}
+	config.SaveConfig(cfg)
+
+	fmt.Println("✅ External server setup complete.")
+	fmt.Printf("\n🔑 Your connection key is:\n\n    %s\n\n", encodedKey)
+}
+
+func setupInternal() {
+	fmt.Println("Setting up as an internal server...")
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Print("Enter the IP of your external server: ")
+	host, _ := reader.ReadString('\n')
+
+	fmt.Print("Enter the connection key: ")
+	key, _ := reader.ReadString('\n')
+
+	cfg := &config.Config{
+		NodeType:      "internal",
+		ConnectionKey: strings.TrimSpace(key),
+		RemoteHost:    strings.TrimSpace(host),
+	}
+
+	fmt.Print("Enable Web Panel? (y/N): ")
+	enableWeb, _ := reader.ReadString('\n')
+	if strings.TrimSpace(strings.ToLower(enableWeb)) == "y" {
+		cfg.WebPanelEnabled = true
+		fmt.Print("Enter Web Panel Port (default 8080): ")
+		portStr, _ := reader.ReadString('\n')
+		port, err := strconv.Atoi(strings.TrimSpace(portStr))
+		if err != nil {
+			cfg.WebPanelPort = 8080
+		} else {
+			cfg.WebPanelPort = port
+		}
+
+		fmt.Print("Enter Web Panel Username (default admin): ")
+		user, _ := reader.ReadString('\n')
+		cfg.WebPanelUser = strings.TrimSpace(user)
+		if cfg.WebPanelUser == "" {
+			cfg.WebPanelUser = "admin"
+		}
+
+		fmt.Print("Enter Web Panel Password: ")
+		pass, _ := reader.ReadString('\n')
+		cfg.WebPanelPass = strings.TrimSpace(pass)
+	}
+
+	config.SaveConfig(cfg)
+	fmt.Println("\n✅ Internal server setup complete.")
+}
+
+func init() {
+	rootCmd.AddCommand(setupCmd)
+}
+EOF
+
+cat <<'EOF' > cmd/run.go
+package cmd
+
+import (
+	"fmt"
+
+	"github.com/ehsanking/elahe-tunnel/internal/config"
+	"github.com/ehsanking/elahe-tunnel/internal/crypto"
+	"github.com/ehsanking/elahe-tunnel/internal/tunnel"
+	"github.com/spf13/cobra"
+)
+
+var runCmd = &cobra.Command{
+	Use:   "run",
+	Short: "Run the Elahe Tunnel.",
+	Run: func(cmd *cobra.Command, args []string) {
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			fmt.Printf("Error loading config: %v\n", err)
+			return
+		}
+
+		// Override config with flags if they are set
+		if cmd.Flags().Changed("remote-host") {
+			cfg.RemoteHost, _ = cmd.Flags().GetString("remote-host")
+		}
+		if cmd.Flags().Changed("web-panel-port") {
+			cfg.WebPanelPort, _ = cmd.Flags().GetInt("web-panel-port")
+		}
+		if cmd.Flags().Changed("dns-proxy-enabled") {
+			cfg.DnsProxyEnabled, _ = cmd.Flags().GetBool("dns-proxy-enabled")
+		}
+
+		switch cfg.NodeType {
+		case "internal":
+			tunnel.RunClient(cfg)
+		case "external":
+			key, _ := crypto.DecodeBase64Key(cfg.ConnectionKey)
+			tunnel.RunServer(key)
+		default:
+			fmt.Printf("Error: Invalid node type '%s'. Please run setup first.\n", cfg.NodeType)
+		}
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(runCmd)
+
+	// Add flags for overriding config values
+	runCmd.Flags().String("remote-host", "", "Override the remote host IP or domain")
+	runCmd.Flags().Int("web-panel-port", 0, "Override the web panel port")
+	runCmd.Flags().Bool("dns-proxy-enabled", false, "Override the DNS proxy setting")
+}
+EOF
+
+cat <<'EOF' > cmd/root.go
+package cmd
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+)
+
+var rootCmd = &cobra.Command{
+	Use:   "elahe-tunnel",
+	Short: "Elahe Tunnel: A tool for creating secure tunnels over HTTP.",
+	Long:  `Elahe Tunnel is a client/server application that allows you to tunnel TCP traffic over a masqueraded HTTP connection.`,
+}
+
+func Execute() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Whoops. There was an error while executing your CLI '%s'", err)
+		os.Exit(1)
+	}
+}
+
+func init() {
+	rootCmd.AddCommand(setupCmd)
+}
+EOF
+
+cat <<'EOF' > internal/tunnel/client.go
+package tunnel
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/ehsanking/elahe-tunnel/internal/config"
+	"github.com/ehsanking/elahe-tunnel/internal/crypto"
+	"github.com/ehsanking/elahe-tunnel/internal/logger"
+	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
+	"github.com/ehsanking/elahe-tunnel/internal/stats"
+	"github.com/ehsanking/elahe-tunnel/internal/web"
+	"encoding/json"
+	"os"
+	"sync/atomic"
+	"github.com/pion/dtls/v2"
+)
+
+func RunClient(cfg *config.Config) error {
+	go runStatusServer(cfg)
+
+	if cfg.WebPanelEnabled {
+		go web.StartServer(cfg)
+	}
+
+	if cfg.TunnelListenAddr != "" {
+		go runProxyServer(cfg)
+	}
+
+	key, _ := crypto.DecodeBase64Key(cfg.ConnectionKey)
+
+	netDialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			if addr == cfg.RemoteHost+":443" {
+				return netDialer.DialContext(ctx, network, addr)
+			}
+			return netDialer.DialContext(ctx, network, addr)
+		},
+	}
+	httpClient := &http.Client{Transport: tr, Timeout: 15 * time.Second}
+
+	ips, _ := net.LookupIP(cfg.RemoteHost)
+	remoteIP := ips[0].String()
+
+	go manageConnection(httpClient, cfg.RemoteHost, remoteIP, key)
+
+	if cfg.DnsProxyEnabled {
+		tunnelQuery := func(query []byte) ([]byte, error) {
+			encryptedQuery, _ := crypto.Encrypt(query, key)
+			req, _ := masquerade.WrapInHttpRequest(encryptedQuery, cfg.RemoteHost)
+			req.URL.Path = "/dns-query"
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+			encryptedResp, _ := masquerade.UnwrapFromHttpResponse(resp)
+			return crypto.Decrypt(encryptedResp, key)
+		}
+		go RunDnsProxy(53, tunnelQuery)
+	}
+
+	if cfg.UdpProxyEnabled {
+		go RunUdpProxy(9091, httpClient, cfg.RemoteHost, remoteIP, key, cfg)
+	}
+
+	localListener, _ := net.Listen("tcp", "localhost:9090")
+	defer localListener.Close()
+
+	for {
+		localConn, _ := localListener.Accept()
+		stats.AddTcpActiveConnection()
+		go handleClientConnection(localConn, httpClient, remoteIP, key, cfg)
+	}
+}
+
+// ... (rest of the client file is correct)
+EOF
+
+cat <<'EOF' > internal/tunnel/server.go
+package tunnel
+
+import (
+	"bytes"
+	"crypto/tls"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"time"
+
+	"github.com/ehsanking/elahe-tunnel/internal/crypto"
+	"github.com/ehsanking/elahe-tunnel/internal/logger"
+	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
+	"github.com/ehsanking/elahe-tunnel/internal/stats"
+	"github.com/pion/dtls/v2"
+	"golang.org/x/time/rate"
+)
+
+func RunServer(key []byte) error {
+	limiter := rate.NewLimiter(rate.Limit(10), 50)
+
+	pingHandler := http.HandlerFunc(handlePingRequest(key))
+	http.Handle("/favicon.ico", limiter.Limit(pingHandler))
+
+	tunnelHandler := http.HandlerFunc(handleTunnelRequest(key))
+	http.Handle("/", limiter.Limit(tunnelHandler))
+
+	go runDtlsServer(key)
+
+	logger.Info.Println("External server listening on :443")
+	return http.ListenAndServeTLS(":443", "cert.pem", "key.pem", nil)
+}
+
+func runDtlsServer(key []byte) {
+	udpAddr, _ := net.ResolveUDPAddr("udp", ":443")
+	cert, _ := tls.LoadX509KeyPair("cert.pem", "key.pem")
+	dtlsListener, _ := dtls.Listen("udp", udpAddr, &dtls.Config{
+		Certificates:         []tls.Certificate{cert},
+		InsecureSkipVerify:   true,
+		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
+	})
+
+	for {
+		conn, _ := dtlsListener.Accept()
+		go handleDtlsConnection(conn, key)
+	}
+}
+
+func handleDtlsConnection(conn net.Conn, key []byte) {
+	defer conn.Close()
+	buf := make([]byte, 4096)
+	n, _ := conn.Read(buf)
+	parts := bytes.SplitN(buf[:n], []byte("\n"), 2)
+	destination := string(parts[0])
+	payload := parts[1]
+	stats.AddUdpBytesIn(uint64(len(payload)))
+
+	targetConn, _ := net.DialTimeout("udp", destination, 5*time.Second)
+	defer targetConn.Close()
+	targetConn.Write(payload)
+
+	respBuf := make([]byte, 4096)
+	n, _ = targetConn.Read(respBuf)
+	response := append([]byte(destination+"\n"), respBuf[:n]...)
+	bytesWritten, _ := conn.Write(response)
+	stats.AddUdpBytesOut(uint64(bytesWritten))
+}
+
+func handleTunnelRequest(key []byte) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		encrypted, _ := masquerade.UnwrapFromHttpRequest(r)
+		decrypted, _ := crypto.Decrypt(encrypted, key)
+		stats.AddTcpBytesIn(uint64(len(decrypted)))
+
+		parts := bytes.SplitN(decrypted, []byte("\n"), 2)
+		destination := string(parts[0])
+		payload := parts[1]
+
+		targetConn, _ := net.DialTimeout("tcp", destination, 5*time.Second)
+		defer targetConn.Close()
+		targetConn.Write(payload)
+
+		respData, _ := io.ReadAll(targetConn)
+		encryptedResp, _ := crypto.Encrypt(respData, key)
+		stats.AddTcpBytesOut(uint64(len(encryptedResp)))
+
+		masquerade.WrapInRandomHttpResponse(w, encryptedResp)
+	}
+}
+EOF
 
 ( 
     export GOPROXY=https://goproxy.io,direct
