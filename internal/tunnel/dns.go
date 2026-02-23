@@ -2,60 +2,50 @@ package tunnel
 
 import (
 	"fmt"
-	"net"
 
 	"github.com/miekg/dns"
 )
 
-// RunDnsProxy starts a local DNS server to intercept and tunnel DNS queries.
-func RunDnsProxy(dnsPort int, tunnelQuery func([]byte) ([]byte, error)) {
-	addr := fmt.Sprintf("127.0.0.1:%d", dnsPort)
-	fmt.Printf("Starting DNS proxy on %s\n", addr)
+// DnsQueryFunc is a function that can perform a DNS query over a tunnel.
+type DnsQueryFunc func(query []byte) ([]byte, error)
 
-	server := &dns.Server{Addr: addr, Net: "udp"}
-	server.Handler = dns.HandlerFunc(func(w dns.ResponseWriter, r *dns.Msg) {
-		msg := new(dns.Msg)
-		msg.SetReply(r)
-		msg.Authoritative = true
+// RunDnsProxy starts a local DNS server that proxies requests over the tunnel.
+func RunDnsProxy(localPort int, tunnelQuery DnsQueryFunc) {
+	server := &dns.Server{Addr: fmt.Sprintf(":%d", localPort), Net: "udp"}
+	server.Handler = &dnsProxyHandler{tunnelQuery: tunnelQuery}
 
-		// For now, we just handle a single question
-		if len(r.Question) > 0 {
-			q := r.Question[0]
-			packed, err := r.Pack()
-			if err != nil {
-				fmt.Printf("DNS pack error: %v\n", err)
-				msg.SetRcode(r, dns.RcodeServerFailure)
-				w.WriteMsg(msg)
-				return
-			}
-
-			fmt.Printf("Tunneling DNS query for: %s\n", q.Name)
-			respPacked, err := tunnelQuery(packed)
-			if err != nil {
-				fmt.Printf("DNS tunnel query error: %v\n", err)
-				msg.SetRcode(r, dns.RcodeServerFailure)
-				w.WriteMsg(msg)
-				return
-			}
-
-			respMsg := new(dns.Msg)
-			if err := respMsg.Unpack(respPacked); err != nil {
-				fmt.Printf("DNS unpack error: %v\n", err)
-				msg.SetRcode(r, dns.RcodeServerFailure)
-				w.WriteMsg(msg)
-				return
-			}
-
-			w.WriteMsg(respMsg)
-			return
-		}
-
-		// Default failure case
-		msg.SetRcode(r, dns.RcodeServerFailure)
-		w.WriteMsg(msg)
-	})
-
+	fmt.Printf("DNS proxy listening on port %d\n", localPort)
 	if err := server.ListenAndServe(); err != nil {
 		fmt.Printf("Failed to start DNS proxy: %s\n", err.Error())
 	}
+}
+
+type dnsProxyHandler struct {
+	tunnelQuery DnsQueryFunc
+}
+
+func (h *dnsProxyHandler) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	query, err := r.Pack()
+	if err != nil {
+		fmt.Printf("Failed to pack DNS query: %v\n", err)
+		dns.HandleFailed(w, r)
+		return
+	}
+
+	respBytes, err := h.tunnelQuery(query)
+	if err != nil {
+		fmt.Printf("DNS tunnel query failed: %v\n", err)
+		dns.HandleFailed(w, r)
+		return
+	}
+
+	respMsg := new(dns.Msg)
+	if err := respMsg.Unpack(respBytes); err != nil {
+		fmt.Printf("Failed to unpack DNS response: %v\n", err)
+		dns.HandleFailed(w, r)
+		return
+	}
+
+	respMsg.Id = r.Id
+	w.WriteMsg(respMsg)
 }

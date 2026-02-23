@@ -15,6 +15,7 @@ import (
 	"github.com/ehsanking/elahe-tunnel/internal/crypto"
 	"github.com/ehsanking/elahe-tunnel/internal/logger"
 	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
+	"github.com/ehsanking/elahe-tunnel/internal/web"
 	"encoding/json"
 	"os"
 	"sync/atomic"
@@ -25,6 +26,10 @@ import (
 func RunClient(cfg *config.Config) error {
 	// Start the status server
 	go runStatusServer(cfg)
+
+	if cfg.WebPanelEnabled {
+		go web.StartServer(cfg)
+	}
 
 	// If listen address is provided, start the proxy server
 	if cfg.TunnelListenAddr != "" {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/ehsanking/elahe-tunnel/internal/config"
@@ -107,7 +108,13 @@ func setupInternal() {
 		if portStr == "" {
 			cfg.WebPanelPort = 8080
 		} else {
-			fmt.Sscanf(portStr, "%d", &cfg.WebPanelPort)
+			port, err := strconv.Atoi(portStr)
+			if err != nil {
+				fmt.Println("Invalid port, using default 8080")
+				cfg.WebPanelPort = 8080
+			} else {
+				cfg.WebPanelPort = port
+			}
 		}
 
 		fmt.Print("Enter Web Panel Username (default admin): ")
@@ -130,7 +137,6 @@ func setupInternal() {
 	}
 
 	fmt.Println("\n✅ Internal server setup complete. The tunnel will now attempt to connect.")
-	// TODO: Add connection logic
 }
 
 func init() {

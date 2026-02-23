@@ -1,84 +1,49 @@
 package cmd
 
 import (
-	"crypto/tls"
-	"fmt"
-	"net/http"
-	"os"
-	"time"
-
-	"github.com/ehsanking/elahe-tunnel/internal/config"
-	"github.com/ehsanking/elahe-tunnel/internal/crypto"
-	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
+	"os"
+
+	"github.com/spf13/cobra"
 )
-
-var statusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Check the current status of the Elahe Tunnel.",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("Checking tunnel status...")
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Println("Configuration not found. Please run 'setup' first.")
-			os.Exit(1)
-		}
-
-		fmt.Printf("  Node Type: %s\n", cfg.NodeType)
-		if cfg.NodeType == "internal" {
-			fmt.Printf("  Remote Host: %s\n", cfg.RemoteHost)
-			checkConnectionStatus(cfg)
-		} else {
-			fmt.Println("  Status: Listening (External node)")
-		}
-	},
-}
 
 const socketPath = "/tmp/elahe-tunnel.sock"
 
-func checkConnectionStatus(cfg *config.Config) {
-	conn, err := net.Dial("unix", socketPath)
-	if err != nil {
-		fmt.Println("  Status: Inactive (Tunnel process not running?)")
-		return
-	}
-	defer conn.Close()
+var statusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Get the current status of the Elahe Tunnel client.",
+	Run: func(cmd *cobra.Command, args []string) {
+		conn, err := net.Dial("unix", socketPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error connecting to status socket: %v\n", err)
+			fmt.Fprintln(os.Stderr, "Is the Elahe Tunnel client running?")
+			os.Exit(1)
+		}
+		defer conn.Close()
 
-	// No need to send data, the server responds on connect
-	jsonData, err := io.ReadAll(conn)
-	if err != nil {
-		fmt.Println("  Status: Error reading from tunnel process")
-		return
-	}
+		data, err := io.ReadAll(conn)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading from status socket: %v\n", err)
+			os.Exit(1)
+		}
 
-	var status struct {
-		UdpEnabled         bool   `json:"udp_enabled"`
-		UdpDestination     string `json:"udp_destination"`
-		UdpPacketsIn       uint64 `json:"udp_packets_in"`
-		UdpPacketsOut      uint64 `json:"udp_packets_out"`
-		UdpBytesIn         uint64 `json:"udp_bytes_in"`
-		UdpBytesOut        uint64 `json:"udp_bytes_out"`
-		CurrentUdpPayloadSize uint64 `json:"current_udp_payload_size"`
-	}
+		var status interface{}
+		if err := json.Unmarshal(data, &status); err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing status data: %v\n", err)
+			os.Exit(1)
+		}
 
-	if err := json.Unmarshal(jsonData, &status); err != nil {
-		fmt.Println("  Status: Error parsing status response from tunnel")
-		return
-	}
+		prettyJSON, err := json.MarshalIndent(status, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error formatting status data: %v\n", err)
+			os.Exit(1)
+		}
 
-	fmt.Println("  Status: Active")
-	fmt.Println("  --- UDP Tunnel ---")
-	if status.UdpEnabled {
-		fmt.Printf("    Status: Enabled\n")
-		fmt.Printf("    Destination: %s\n", status.UdpDestination)
-		fmt.Printf("    Packets In/Out: %d / %d\n", status.UdpPacketsIn, status.UdpPacketsOut)
-		fmt.Printf("    Bytes In/Out: %d / %d\n", status.UdpBytesIn, status.UdpBytesOut)
-		fmt.Printf("    Current Payload Size: %d bytes\n", status.CurrentUdpPayloadSize)
-	} else {
-		fmt.Println("    Status: Disabled")
-	}
+		fmt.Println(string(prettyJSON))
+	},
 }
 
 func init() {

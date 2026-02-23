@@ -1,110 +1,81 @@
 package pool
 
 import (
-	"errors"
-	"fmt"
 	"net"
 	"sync"
 	"time"
 )
 
-// Pool is a generic connection pool.
-type Pool interface {
-	Get() (net.Conn, error)
-	Put(net.Conn)
-	Close()
-	Len() int
-}
+const maxIdleTime = 2 * time.Minute
 
-// channelPool implements the Pool interface.
-type channelPool struct {
-	conns   chan net.Conn
-	factory func() (net.Conn, error)
+// ConnPool manages a pool of network connections.
+type ConnPool struct {
 	mu      sync.Mutex
+	conns   map[string][]*idleConn
+	maxSize int
 }
 
-// NewChannelPool creates a new connection pool.
-func NewChannelPool(initialCap, maxCap int, factory func() (net.Conn, error)) (Pool, error) {
-	if initialCap < 0 || maxCap <= 0 || initialCap > maxCap {
-		return nil, errors.New("invalid capacity settings")
-	}
-
-	p := &channelPool{
-		conns:   make(chan net.Conn, maxCap),
-		factory: factory,
-	}
-
-	for i := 0; i < initialCap; i++ {
-		conn, err := factory()
-		if err != nil {
-			p.Close()
-			return nil, fmt.Errorf("factory is not able to fill the pool: %s", err)
-		}
-		p.conns <- conn
-	}
-
-	return p, nil
+type idleConn struct {
+	conn    net.Conn
+	addedAt time.Time
 }
 
-func (p *channelPool) Get() (net.Conn, error) {
-	select {
-	case conn := <-p.conns:
-		if conn == nil {
-			return nil, errors.New("pool is closed")
-		}
-		// Check if the connection is still alive
-		if err := conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond)); err != nil {
-			return p.factory()
-		}
-		var oneByte []byte
-		if _, err := conn.Read(oneByte); err != nil {
-			return p.factory()
-		}
-		if err := conn.SetReadDeadline(time.Time{}); err != nil {
-			return p.factory()
-		}
-		return conn, nil
-	default:
-		return p.factory()
+// NewConnPool creates a new connection pool.
+func NewConnPool(maxSize int) *ConnPool {
+	return &ConnPool{
+		conns:   make(map[string][]*idleConn),
+		maxSize: maxSize,
 	}
 }
 
-func (p *channelPool) Put(conn net.Conn) {
-	if conn == nil {
-		return
-	}
-
+// Get retrieves a connection from the pool or creates a new one.
+func (p *ConnPool) Get(addr string) (net.Conn, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.conns == nil {
-		conn.Close()
-		return
+	if p.conns[addr] != nil && len(p.conns[addr]) > 0 {
+		ic := p.conns[addr][0]
+		p.conns[addr] = p.conns[addr][1:]
+
+		// Check if the connection is still valid
+		if err := connCheck(ic.conn); err == nil {
+			return ic.conn, nil
+		}
 	}
 
-	select {
-	case p.conns <- conn:
-		return
-	default:
-		conn.Close()
-	}
+	// No valid connection in pool, create a new one
+	return net.DialTimeout("tcp", addr, 5*time.Second)
 }
 
-func (p *channelPool) Close() {
+// Put adds a connection back to the pool.
+func (p *ConnPool) Put(conn net.Conn) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.conns == nil {
+	addr := conn.RemoteAddr().String()
+	if p.conns[addr] == nil {
+		p.conns[addr] = make([]*idleConn, 0, p.maxSize)
+	}
+
+	if len(p.conns[addr]) >= p.maxSize {
+		conn.Close() // Pool is full
 		return
 	}
 
-	close(p.conns)
-	for conn := range p.conns {
-		conn.Close()
-	}
-	p.conns = nil
+	p.conns[addr] = append(p.conns[addr], &idleConn{conn: conn, addedAt: time.Now()})
 }
 
-func (p *channelPool) Len() int {
-	return len(p.conns)
+// connCheck performs a lightweight check to see if a connection is still alive.
+func connCheck(conn net.Conn) error {
+	if err := conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond)); err != nil {
+		return err
+	}
+	var one []byte
+	if _, err := conn.Read(one); err == net.ErrClosed || err == io.EOF {
+		return err
+	}
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		return err
+	}
+	return nil
 }
