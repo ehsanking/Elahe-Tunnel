@@ -12,6 +12,7 @@ import (
 	"github.com/ehsanking/elahe-tunnel/internal/crypto"
 	"github.com/ehsanking/elahe-tunnel/internal/logger"
 	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
+	"github.com/ehsanking/elahe-tunnel/internal/stats"
 	"github.com/pion/dtls/v2"
 	"golang.org/x/time/rate"
 )
@@ -82,6 +83,7 @@ func handleDtlsConnection(conn net.Conn, key []byte) {
 	}
 	destination := string(parts[0])
 	payload := parts[1]
+	stats.AddUdpBytesIn(uint64(len(payload)))
 
 	targetConn, err := net.DialTimeout("udp", destination, 5*time.Second)
 	if err != nil {
@@ -105,7 +107,8 @@ func handleDtlsConnection(conn net.Conn, key []byte) {
 
 	// Prepend destination for client-side routing and send back
 	response := append([]byte(destination+"\n"), respBuf[:n]...)
-	_, err = conn.Write(response)
+	bytesWritten, err := conn.Write(response)
+	stats.AddUdpBytesOut(uint64(bytesWritten))
 	if err != nil {
 		logger.Error.Printf("DTLS write error: %v", err)
 	}
@@ -120,6 +123,7 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 		}
 
 		decrypted, err := crypto.Decrypt(encrypted, key)
+		stats.AddTcpBytesIn(uint64(len(decrypted)))
 		if err != nil {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
@@ -154,6 +158,7 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 		}
 
 		encryptedResp, err := crypto.Encrypt(respData, key)
+		stats.AddTcpBytesOut(uint64(len(encryptedResp)))
 		if err != nil {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return

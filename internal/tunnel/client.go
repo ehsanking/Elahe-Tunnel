@@ -15,6 +15,7 @@ import (
 	"github.com/ehsanking/elahe-tunnel/internal/crypto"
 	"github.com/ehsanking/elahe-tunnel/internal/logger"
 	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
+	"github.com/ehsanking/elahe-tunnel/internal/stats"
 	"github.com/ehsanking/elahe-tunnel/internal/web"
 	"encoding/json"
 	"os"
@@ -125,7 +126,8 @@ func RunClient(cfg *config.Config) error {
 			fmt.Printf("Failed to accept local connection: %v\n", err)
 			continue
 		}
-		go handleClientConnection(localConn, httpClient, remoteIP, key, cfg)
+		stats.AddTcpActiveConnection()
+go handleClientConnection(localConn, httpClient, remoteIP, key, cfg)
 	}
 }
 
@@ -467,6 +469,7 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 					continue // Retry on auth failure
 				}
 
+				stats.SetLastSuccessfulPing(time.Now().Unix())
 				fmt.Println("[Health Check] Connection OK.")
 				break // Success
 			}
@@ -490,11 +493,13 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 }
 
 func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteIP string, key []byte, cfg *config.Config) {
+	defer stats.RemoveTcpActiveConnection()
 	defer localConn.Close()
 
 	// Read data from the local application
 	buf := make([]byte, 8192)
 	n, err := localConn.Read(buf)
+	stats.AddTcpBytesIn(uint64(n))
 	if err != nil {
 		if err != io.EOF {
 			fmt.Printf("Error reading from local connection: %v\n", err)
@@ -543,7 +548,8 @@ func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteI
 	}
 
 	// Write the final data back to the local application
-	_, err = localConn.Write(decrypted)
+	bytesWritten, err := localConn.Write(decrypted)
+	stats.AddTcpBytesOut(uint64(bytesWritten))
 	if err != nil {
 		fmt.Printf("Error writing to local connection: %v\n", err)
 	}
