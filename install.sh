@@ -80,7 +80,10 @@ mkdir -p internal/stats
 cat <<'EOF' > internal/stats/stats.go
 package stats
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+	"time"
+)
 
 var (
 	tcpActiveConnections int64
@@ -106,13 +109,31 @@ func SetLastSuccessfulPing(t int64) { atomic.StoreInt64(&lastSuccessfulPing, t) 
 func GetLastSuccessfulPing() int64  { return atomic.LoadInt64(&lastSuccessfulPing) }
 
 type Status struct {
-	TcpActiveConnections int64  `json:"tcp_active_connections"`
-	TcpBytesIn           uint64 `json:"tcp_bytes_in"`
-	TcpBytesOut          uint64 `json:"tcp_bytes_out"`
-	UdpBytesIn           uint64 `json:"udp_bytes_in"`
-	UdpBytesOut          uint64 `json:"udp_bytes_out"`
-	LastSuccessfulPing   int64  `json:"last_successful_ping"`
-	ConnectionHealth     string `json:"connection_health"`
+	TcpActiveConnections int64  `json:"TcpActiveConnections"`
+	TcpBytesIn           uint64 `json:"TcpBytesIn"`
+	TcpBytesOut          uint64 `json:"TcpBytesOut"`
+	UdpBytesIn           uint64 `json:"UdpBytesIn"`
+	UdpBytesOut          uint64 `json:"UdpBytesOut"`
+	LastSuccessfulPing   int64  `json:"LastSuccessfulPing"`
+	ConnectionHealth     string `json:"ConnectionHealth"`
+}
+
+func GetStatus() Status {
+	status := Status{
+		TcpActiveConnections: GetTcpActiveConnections(),
+		TcpBytesIn:           GetTcpBytesIn(),
+		TcpBytesOut:          GetTcpBytesOut(),
+		UdpBytesIn:           GetUdpBytesIn(),
+		UdpBytesOut:          GetUdpBytesOut(),
+		LastSuccessfulPing:   GetLastSuccessfulPing(),
+	}
+
+	if time.Now().Unix()-status.LastSuccessfulPing < 90 {
+		status.ConnectionHealth = "Connected"
+	} else {
+		status.ConnectionHealth = "Disconnected"
+	}
+	return status
 }
 EOF
 
@@ -134,7 +155,6 @@ func StartServer(cfg *config.Config) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", basicAuth(StatusHandler, cfg.WebPanelUser, cfg.WebPanelPass, "Elahe Tunnel Panel"))
-	mux.HandleFunc("/status", basicAuth(JsonStatusHandler, cfg.WebPanelUser, cfg.WebPanelPass, "Elahe Tunnel Panel"))
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.WebPanelPort)
 	fmt.Printf("Web panel starting on http://%s\n", addr)
@@ -165,15 +185,14 @@ package web
 
 import (
 	"encoding/json"
-	"fmt"
 	"html/template"
+	"log"
 	"net/http"
-	"time"
 
 	"github.com/ehsanking/elahe-tunnel/internal/stats"
 )
 
-const statusTemplate = `
+const statusTemplateHTML = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -187,111 +206,111 @@ const statusTemplate = `
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 30px; }
         .card { background-color: #f8f9fa; padding: 20px; border-radius: 8px; border-left: 5px solid #1a73e8; }
         .card h2 { margin-top: 0; font-size: 1.2em; color: #333; }
-        .card p { margin: 5px 0 0; font-size: 1.8em; font-weight: 600; color: #1a73e8; }
-        .health { text-align: center; margin-top: 30px; padding: 15px; border-radius: 8px; }
+        .card p { margin: 10px 0 0; font-size: 1em; color: #5f6368; }
+		.card p span { font-size: 1.6em; font-weight: 600; color: #1a73e8; display: block; margin-top: 4px;}
+		.rate { font-size: 0.8em !important; color: #5f6368 !important; font-weight: normal !important; }
+        .health { text-align: center; margin-top: 30px; padding: 15px; border-radius: 8px; font-size: 1.2em; font-weight: 600;}
         .health.ok { background-color: #e8f5e9; color: #2e7d32; border-left: 5px solid #4caf50; }
         .health.fail { background-color: #ffebee; color: #c62828; border-left: 5px solid #f44336; }
     </style>
-    <script>
-        setTimeout(() => { window.location.reload(); }, 5000);
-    </script>
 </head>
 <body>
     <div class="container">
         <h1>Elahe Tunnel Status</h1>
-        <div class="health {{.ConnectionHealthClass}}">
-            <p>{{.ConnectionHealth}}</p>
+		<div id="health-status" class="health">
+			Checking connection...
         </div>
         <div class="grid">
             <div class="card">
-                <h2>TCP Active Connections</h2>
-                <p>{{.TcpActiveConnections}}</p>
+                <h2>TCP</h2>
+				<p>Active Connections: <span id="tcp-active">0</span></p>
+				<p>Data In: <span id="tcp-in">0 B</span> <span id="tcp-in-rate" class="rate"></span></p>
+				<p>Data Out: <span id="tcp-out">0 B</span> <span id="tcp-out-rate" class="rate"></span></p>
             </div>
             <div class="card">
-                <h2>TCP Data In</h2>
-                <p>{{.TcpBytesIn | formatBytes}}</p>
-            </div>
-            <div class="card">
-                <h2>TCP Data Out</h2>
-                <p>{{.TcpBytesOut | formatBytes}}</p>
-            </div>
-            <div class="card">
-                <h2>UDP Data In</h2>
-                <p>{{.UdpBytesIn | formatBytes}}</p>
-            </div>
-            <div class="card">
-                <h2>UDP Data Out</h2>
-                <p>{{.UdpBytesOut | formatBytes}}</p>
+                <h2>UDP</h2>
+				<p>Active Connections: <span id="udp-active">N/A</span></p> 
+                <p>Data In: <span id="udp-in">0 B</span> <span id="udp-in-rate" class="rate"></span></p>
+                <p>Data Out: <span id="udp-out">0 B</span> <span id="udp-out-rate" class="rate"></span></p>
             </div>
         </div>
     </div>
+
+	<script>
+		let lastStats = null;
+		const fetchInterval = 5000; // 5 seconds
+
+		function formatBytes(bytes, decimals = 2) {
+			if (bytes === 0) return '0 B';
+			const k = 1024;
+			const dm = decimals < 0 ? 0 : decimals;
+			const sizes = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+			const i = Math.floor(Math.log(bytes) / Math.log(k));
+			return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+		}
+
+		function updateStats() {
+			fetch('/status?json=true')
+				.then(response => response.json())
+				.then(data => {
+					const healthDiv = document.getElementById('health-status');
+					healthDiv.textContent = data.ConnectionHealth;
+					healthDiv.className = 'health ' + (data.ConnectionHealth === 'Connected' ? 'ok' : 'fail');
+
+					document.getElementById('tcp-active').textContent = data.TcpActiveConnections;
+					
+					document.getElementById('tcp-in').textContent = formatBytes(data.TcpBytesIn);
+					document.getElementById('tcp-out').textContent = formatBytes(data.TcpBytesOut);
+					document.getElementById('udp-in').textContent = formatBytes(data.UdpBytesIn);
+					document.getElementById('udp-out').textContent = formatBytes(data.UdpBytesOut);
+
+					if (lastStats) {
+						const intervalSeconds = fetchInterval / 1000;
+						document.getElementById('tcp-in-rate').textContent = '(' + formatBytes((data.TcpBytesIn - lastStats.TcpBytesIn) / intervalSeconds) + '/s)';
+						document.getElementById('tcp-out-rate').textContent = '(' + formatBytes((data.TcpBytesOut - lastStats.TcpBytesOut) / intervalSeconds) + '/s)';
+						document.getElementById('udp-in-rate').textContent = '(' + formatBytes((data.UdpBytesIn - lastStats.UdpBytesIn) / intervalSeconds) + '/s)';
+						document.getElementById('udp-out-rate').textContent = '(' + formatBytes((data.UdpBytesOut - lastStats.UdpBytesOut) / intervalSeconds) + '/s)';
+					}
+					lastStats = data;
+				})
+				.catch(error => {
+					console.error('Error fetching stats:', error);
+					const healthDiv = document.getElementById('health-status');
+					healthDiv.textContent = 'Error fetching status';
+					healthDiv.className = 'health fail';
+				});
+		}
+
+		document.addEventListener('DOMContentLoaded', () => {
+			updateStats();
+			setInterval(updateStats, fetchInterval);
+		});
+	</script>
 </body>
 </html>
 `
 
-func getStatus() stats.Status {
-	status := stats.Status{
-		TcpActiveConnections: stats.GetTcpActiveConnections(),
-		TcpBytesIn:           stats.GetTcpBytesIn(),
-		TcpBytesOut:          stats.GetTcpBytesOut(),
-		UdpBytesIn:           stats.GetUdpBytesIn(),
-		UdpBytesOut:          stats.GetUdpBytesOut(),
-		LastSuccessfulPing:   stats.GetLastSuccessfulPing(),
-	}
-
-	if time.Now().Unix()-status.LastSuccessfulPing < 90 {
-		status.ConnectionHealth = "Connected"
-	} else {
-		status.ConnectionHealth = "Disconnected"
-	}
-	return status
-}
-
 func StatusHandler(w http.ResponseWriter, r *http.Request) {
-	status := getStatus()
-
-	if r.Header.Get("Accept") == "application/json" {
+	if r.URL.Query().Get("json") == "true" {
+		status := stats.GetStatus()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(status)
 		return
 	}
 
-	tmpl, _ := template.New("status").Funcs(template.FuncMap{
-		"formatBytes": func(b uint64) string {
-			const unit = 1024
-			if b < unit {
-				return fmt.Sprintf("%d B", b)
-			}
-			div, exp := int64(unit), 0
-			for n := b / unit; n >= unit; n /= unit {
-				div *= unit
-				exp++
-			}
-			return fmt.Sprintf("%.2f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
-		},
-	}).Parse(statusTemplate)
-
-	data := struct {
-		stats.Status
-		ConnectionHealthClass string
-	}{
-		Status: status,
-	}
-
-	if status.ConnectionHealth == "Connected" {
-		data.ConnectionHealthClass = "ok"
-	} else {
-		data.ConnectionHealthClass = "fail"
+	t, err := template.New("status").Parse(statusTemplateHTML)
+	if err != nil {
+		log.Printf("Error parsing status template: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	tmpl.Execute(w, data)
-}
-
-func JsonStatusHandler(w http.ResponseWriter, r *http.Request) {
-	status := getStatus()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	err = t.Execute(w, nil) // No data needed for the initial template
+	if err != nil {
+		log.Printf("Error executing status template: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	}
 }
 EOF
 
@@ -529,12 +548,46 @@ func init() {
 }
 EOF
 
+mkdir -p internal/tunnel
+
+cat <<'EOF' > internal/tunnel/ping.go
+package tunnel
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/ehsanking/elahe-tunnel/internal/crypto"
+	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
+	"github.com/ehsanking/elahe-tunnel/internal/stats"
+)
+
+func handlePingRequest(key []byte) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		encrypted, err := masquerade.UnwrapFromHttpRequest(r)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		decrypted, err := crypto.Decrypt(encrypted, key)
+		if err != nil || string(decrypted) != "ping" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		stats.SetLastSuccessfulPing(time.Now().Unix())
+
+		encryptedResp, _ := crypto.Encrypt([]byte("pong"), key)
+		masquerade.WrapInRandomHttpResponse(encryptedResp).Write(w)
+	}
+}
+EOF
+
 cat <<'EOF' > internal/tunnel/client.go
 package tunnel
 
 import (
-	"bytes"
-	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -549,77 +602,145 @@ import (
 	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
 	"github.com/ehsanking/elahe-tunnel/internal/stats"
 	"github.com/ehsanking/elahe-tunnel/internal/web"
-	"encoding/json"
-	"os"
-	"sync/atomic"
-	"github.com/pion/dtls/v2"
 )
 
 func RunClient(cfg *config.Config) error {
-	go runStatusServer(cfg)
-
 	if cfg.WebPanelEnabled {
 		go web.StartServer(cfg)
-	}
-
-	if cfg.TunnelListenAddr != "" {
-		go runProxyServer(cfg)
 	}
 
 	key, _ := crypto.DecodeBase64Key(cfg.ConnectionKey)
 
 	netDialer := &net.Dialer{
-		Timeout:   30 * time.Second,
+		Timeout:   10 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}
 
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if addr == cfg.RemoteHost+":443" {
-				return netDialer.DialContext(ctx, network, addr)
-			}
-			return netDialer.DialContext(ctx, network, addr)
-		},
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
+		DialContext:         netDialer.DialContext,
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
 	}
-	httpClient := &http.Client{Transport: tr, Timeout: 15 * time.Second}
+	httpClient := &http.Client{Transport: tr}
 
-	ips, _ := net.LookupIP(cfg.RemoteHost)
-	remoteIP := ips[0].String()
+	go manageConnection(httpClient, cfg, key)
 
-	go manageConnection(httpClient, cfg.RemoteHost, remoteIP, key)
-
-	if cfg.DnsProxyEnabled {
-		tunnelQuery := func(query []byte) ([]byte, error) {
-			encryptedQuery, _ := crypto.Encrypt(query, key)
-			req, _ := masquerade.WrapInHttpRequest(encryptedQuery, cfg.RemoteHost)
-			req.URL.Path = "/dns-query"
-			resp, err := httpClient.Do(req)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-			encryptedResp, _ := masquerade.UnwrapFromHttpResponse(resp)
-			return crypto.Decrypt(encryptedResp, key)
-		}
-		go RunDnsProxy(53, tunnelQuery)
+	localListener, err := net.Listen("tcp", "127.0.0.1:1080")
+	if err != nil {
+		return fmt.Errorf("failed to listen on local port: %v", err)
 	}
-
-	if cfg.UdpProxyEnabled {
-		go RunUdpProxy(9091, httpClient, cfg.RemoteHost, remoteIP, key, cfg)
-	}
-
-	localListener, _ := net.Listen("tcp", "localhost:9090")
 	defer localListener.Close()
 
+	logger.Info.Println("SOCKS5 proxy listening on 127.0.0.1:1080")
+
 	for {
-		localConn, _ := localListener.Accept()
+		localConn, err := localListener.Accept()
+		if err != nil {
+			continue
+		}
 		stats.AddTcpActiveConnection()
-		go handleClientConnection(localConn, httpClient, remoteIP, key, cfg)
+		go handleClientConnection(localConn, httpClient, cfg, key)
 	}
 }
 
-// ... (rest of the client file is correct)
+func handleClientConnection(localConn net.Conn, httpClient *http.Client, cfg *config.Config, key []byte) {
+	defer localConn.Close()
+	defer stats.RemoveTcpActiveConnection()
+
+	// SOCKS5 handshake
+	if err := socks5Handshake(localConn); err != nil {
+		return
+	}
+
+	// Read destination address
+	destination, err := getSocks5Destination(localConn)
+	if err != nil {
+		return
+	}
+
+	payload := []byte(destination + "\n")
+	encrypted, _ := crypto.Encrypt(payload, key)
+	req, _ := masquerade.WrapInHttpRequest(encrypted, cfg.RemoteHost)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		written, _ := io.Copy(localConn, resp.Body)
+		stats.AddTcpBytesOut(uint64(written))
+	}()
+
+	go func() {
+		defer wg.Done()
+		io.Copy(io.Discard, localConn)
+	}()
+
+	wg.Wait()
+}
+
+func manageConnection(httpClient *http.Client, cfg *config.Config, key []byte) {
+	for {
+		ping(httpClient, cfg, key)
+		time.Sleep(30 * time.Second) // Health check interval
+	}
+}
+
+func ping(httpClient *http.Client, cfg *config.Config, key []byte) {
+	encrypted, _ := crypto.Encrypt([]byte("ping"), key)
+	req, _ := masquerade.WrapInHttpRequest(encrypted, cfg.RemoteHost)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		stats.SetLastSuccessfulPing(0)
+		return
+	}
+	defer resp.Body.Close()
+
+	encryptedResp, _ := masquerade.UnwrapFromHttpResponse(resp)
+	decrypted, err := crypto.Decrypt(encryptedResp, key)
+
+	if err == nil && string(decrypted) == "pong" {
+		stats.SetLastSuccessfulPing(time.Now().Unix())
+	}
+}
+
+// --- SOCKS5 Helper Functions ---
+func socks5Handshake(conn net.Conn) error {
+	buf := make([]byte, 257)
+	_, err := conn.Read(buf)
+	if err != nil {
+		return err
+	}
+	// Respond that no authentication is required
+	conn.Write([]byte{0x05, 0x00})
+	return nil
+}
+
+func getSocks5Destination(conn net.Conn) (string, error) {
+	buf := make([]byte, 257)
+	_, err := conn.Read(buf)
+	if err != nil {
+		return "", err
+	}
+	// CMD (1 byte), RSV (1 byte), ATYP (1 byte)
+	// We only support domain name for now
+	if buf[3] != 0x03 {
+		return "", fmt.Errorf("unsupported address type")
+	}
+	domainLen := int(buf[4])
+	domain := string(buf[5 : 5+domainLen])
+	port := int(buf[5+domainLen])<<8 | int(buf[5+domainLen+1])
+	return fmt.Sprintf("%s:%d", domain, port), nil
+}
 EOF
 
 cat <<'EOF' > internal/tunnel/server.go
@@ -628,7 +749,6 @@ package tunnel
 import (
 	"bytes"
 	"crypto/tls"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -642,14 +762,23 @@ import (
 	"golang.org/x/time/rate"
 )
 
-func RunServer(key []byte) error {
+func rateLimit(next http.Handler) http.Handler {
 	limiter := rate.NewLimiter(rate.Limit(10), 50)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.Allow() {
+			http.Error(w, http.StatusText(429), http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
+func RunServer(key []byte) error {
 	pingHandler := http.HandlerFunc(handlePingRequest(key))
-	http.Handle("/favicon.ico", limiter.Limit(pingHandler))
+	http.Handle("/favicon.ico", rateLimit(pingHandler))
 
 	tunnelHandler := http.HandlerFunc(handleTunnelRequest(key))
-	http.Handle("/", limiter.Limit(tunnelHandler))
+	http.Handle("/", rateLimit(tunnelHandler))
 
 	go runDtlsServer(key)
 
@@ -710,7 +839,7 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 		encryptedResp, _ := crypto.Encrypt(respData, key)
 		stats.AddTcpBytesOut(uint64(len(encryptedResp)))
 
-		masquerade.WrapInRandomHttpResponse(w, encryptedResp)
+		masquerade.WrapInRandomHttpResponse(encryptedResp).Write(w)
 	}
 }
 EOF
@@ -720,7 +849,7 @@ EOF
     export GOTOOLCHAIN=local
     go mod tidy
     go build -o elahe-tunnel -ldflags "-s -w" .
-) &> /dev/null &
+) &
 spinner $!
 wait $!
 

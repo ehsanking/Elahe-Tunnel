@@ -39,11 +39,30 @@ func GetLastSuccessfulPing() int64  { return atomic.LoadInt64(&lastSuccessfulPin
 
 // Status struct for JSON marshalling
 type Status struct {
-	TcpActiveConnections int64  `json:"tcp_active_connections"`
-	TcpBytesIn           uint64 `json:"tcp_bytes_in"`
-	TcpBytesOut          uint64 `json:"tcp_bytes_out"`
-	UdpBytesIn           uint64 `json:"udp_bytes_in"`
-	UdpBytesOut          uint64 `json:"udp_bytes_out"`
-	LastSuccessfulPing   int64  `json:"last_successful_ping"`
-	ConnectionHealth     string `json:"connection_health"`
+	TcpActiveConnections int64  `json:"TcpActiveConnections"`
+	TcpBytesIn           uint64 `json:"TcpBytesIn"`
+	TcpBytesOut          uint64 `json:"TcpBytesOut"`
+	UdpBytesIn           uint64 `json:"UdpBytesIn"`
+	UdpBytesOut          uint64 `json:"UdpBytesOut"`
+	LastSuccessfulPing   int64  `json:"LastSuccessfulPing"`
+	ConnectionHealth     string `json:"ConnectionHealth"`
+}
+
+// GetStatus gathers all current stats and returns a Status object.
+func GetStatus() Status {
+	status := Status{
+		TcpActiveConnections: GetTcpActiveConnections(),
+		TcpBytesIn:           GetTcpBytesIn(),
+		TcpBytesOut:          GetTcpBytesOut(),
+		UdpBytesIn:           GetUdpBytesIn(),
+		UdpBytesOut:          GetUdpBytesOut(),
+		LastSuccessfulPing:   GetLastSuccessfulPing(),
+	}
+
+	if time.Now().Unix()-status.LastSuccessfulPing < 90 {
+		status.ConnectionHealth = "Connected"
+	} else {
+		status.ConnectionHealth = "Disconnected"
+	}
+	return status
 }

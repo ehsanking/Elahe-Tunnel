@@ -1,20 +1,14 @@
 {
   "name": "elahe-tunnel",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "version": "1.0.0",
+  "description": "Go project to satisfy build system.",
+  "main": "index.js",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "chmod +x install.sh && ./install.sh",
+    "dev": "npm run build && elahe-tunnel run",
+    "start": "elahe-tunnel run"
   },
-  "dependencies": {
-
-  },
-  "devDependencies": {
-    "@types/node": "^22.14.0",
-    
-    "typescript": "~5.8.2",
-    "vite": "^6.2.0"
-  }
+  "author": "",
+  "license": "ISC"
 }
