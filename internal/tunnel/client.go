@@ -80,32 +80,9 @@ func RunClient(cfg *config.Config) error {
 
 	// If enabled, start the DNS proxy
 	if cfg.DnsProxyEnabled {
-		tunnelQuery := func(query []byte) ([]byte, error) {
-			encryptedQuery, err := crypto.Encrypt(query, key)
-			if err != nil {
-				return nil, fmt.Errorf("dns query encryption failed: %w", err)
-			}
-
-			req, err := masquerade.WrapInHttpRequest(encryptedQuery, cfg.RemoteHost)
-			if err != nil {
-				return nil, fmt.Errorf("dns request wrapping failed: %w", err)
-			}
-			req.URL.Path = "/dns-query"
-
-			resp, err := httpClient.Do(req)
-			if err != nil {
-				return nil, fmt.Errorf("dns http request failed: %w", err)
-			}
-			defer resp.Body.Close()
-
-			encryptedResp, err := masquerade.UnwrapFromHttpResponse(resp)
-			if err != nil {
-				return nil, fmt.Errorf("dns response unwrap failed: %w", err)
-			}
-
-			return crypto.Decrypt(encryptedResp, key)
-		}
-		go RunDnsProxy(53, tunnelQuery)
+		go RunDnsProxy(53, func(query []byte) ([]byte, error) {
+			return forwardDnsQuery(query, cfg, httpClient, key)
+		})
 	}
 
 	// If enabled, start the UDP proxy
@@ -297,6 +274,38 @@ func RunUdpProxy(localPort int, httpClient *http.Client, remoteHost, remoteIP st
 			return
 		}
 	}
+}
+
+func forwardDnsQuery(query []byte, cfg *config.Config, httpClient *http.Client, key []byte) ([]byte, error) {
+	// Encrypt DNS query using AES-GCM (via crypto package)
+	encrypted, err := crypto.Encrypt(query, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt DNS query: %v", err)
+	}
+
+	req, err := masquerade.WrapInHttpRequest(encrypted, cfg.RemoteHost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to wrap DNS query in HTTP request: %v", err)
+	}
+	req.Header.Set("X-Tunnel-Type", "dns")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send DNS query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("server returned status %d", resp.StatusCode)
+	}
+
+	encryptedResp, err := masquerade.UnwrapFromHttpResponse(resp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unwrap DNS response: %v", err)
+	}
+
+	// Decrypt DNS response using AES-GCM (via crypto package)
+	return crypto.Decrypt(encryptedResp, key)
 }
 
 func runProxyServer(cfg *config.Config) {

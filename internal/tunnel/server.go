@@ -123,11 +123,17 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 		}
 
 		decrypted, err := crypto.Decrypt(encrypted, key)
-		stats.AddTcpBytesIn(uint64(len(decrypted)))
 		if err != nil {
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}
+
+		if r.Header.Get("X-Tunnel-Type") == "dns" {
+			handleDnsRequest(w, decrypted, key)
+			return
+		}
+
+		stats.AddTcpBytesIn(uint64(len(decrypted)))
 
 		parts := bytes.SplitN(decrypted, []byte("\n"), 2)
 		if len(parts) != 2 {
@@ -164,6 +170,42 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 			return
 		}
 
-		masquerade.WrapInRandomHttpResponse(w, encryptedResp)
+		masquerade.WrapInRandomHttpResponse(encryptedResp).Write(w)
 	}
+}
+
+func handleDnsRequest(w http.ResponseWriter, query []byte, key []byte) {
+	stats.AddDnsQuery()
+	// Forward to a real DNS server
+	dnsServer := "8.8.8.8:53"
+	conn, err := net.Dial("udp", dnsServer)
+	if err != nil {
+		stats.AddDnsError()
+		http.Error(w, "DNS server unreachable", http.StatusServiceUnavailable)
+		return
+	}
+	defer conn.Close()
+
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	_, err = conn.Write(query)
+	if err != nil {
+		stats.AddDnsError()
+		http.Error(w, "Failed to write to DNS server", http.StatusServiceUnavailable)
+		return
+	}
+
+	resp := make([]byte, 512)
+	n, err := conn.Read(resp)
+	if err != nil {
+		stats.AddDnsError()
+		http.Error(w, "Failed to read from DNS server", http.StatusServiceUnavailable)
+		return
+	}
+
+	encryptedResp, err := crypto.Encrypt(resp[:n], key)
+	if err != nil {
+		http.Error(w, "Internal encryption error", http.StatusInternalServerError)
+		return
+	}
+	masquerade.WrapInRandomHttpResponse(encryptedResp).Write(w)
 }
