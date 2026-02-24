@@ -215,6 +215,7 @@ const statusTemplateHTML = `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Elahe Tunnel Status</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         /* --- Theme Variables --- */
         :root {
@@ -487,12 +488,113 @@ const statusTemplateHTML = `
                     <div class="stat-value" id="dns-errors" style="color: var(--color-danger);">0</div>
                 </div>
             </div>
+            <div class="card" style="grid-column: 1 / -1;">
+                <h2>Traffic History</h2>
+                <div style="position: relative; height: 200px; width: 100%;">
+                    <canvas id="trafficChart"></canvas>
+                </div>
+            </div>
         </div>
     </div>
 
 	<script>
 		let lastStats = null;
 		const fetchInterval = 1000;
+        
+        // Chart.js Setup
+        const ctx = document.getElementById('trafficChart').getContext('2d');
+        const maxDataPoints = 60; // 60 seconds of history
+        
+        const chartConfig = {
+            type: 'line',
+            data: {
+                labels: Array(maxDataPoints).fill(''),
+                datasets: [
+                    {
+                        label: 'TCP Inbound (KB/s)',
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: true,
+                        tension: 0.4,
+                        data: Array(maxDataPoints).fill(0)
+                    },
+                    {
+                        label: 'TCP Outbound (KB/s)',
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: true,
+                        tension: 0.4,
+                        data: Array(maxDataPoints).fill(0)
+                    },
+                    {
+                        label: 'UDP Inbound (KB/s)',
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: true,
+                        tension: 0.4,
+                        data: Array(maxDataPoints).fill(0)
+                    },
+                    {
+                        label: 'UDP Outbound (KB/s)',
+                        borderColor: '#ef4444',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: true,
+                        tension: 0.4,
+                        data: Array(maxDataPoints).fill(0)
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 0 },
+                interaction: { intersect: false, mode: 'index' },
+                scales: {
+                    x: { display: false },
+                    y: { 
+                        beginAtZero: true,
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: '#9ca3af' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#e5e7eb', usePointStyle: true, boxWidth: 8 }
+                    }
+                }
+            }
+        };
+        const trafficChart = new Chart(ctx, chartConfig);
+
+        function updateChart(tcpInRate, tcpOutRate, udpInRate, udpOutRate) {
+            // Convert to KB/s
+            const tcpInKBps = tcpInRate / 1024;
+            const tcpOutKBps = tcpOutRate / 1024;
+            const udpInKBps = udpInRate / 1024;
+            const udpOutKBps = udpOutRate / 1024;
+            
+            trafficChart.data.datasets[0].data.push(tcpInKBps);
+            trafficChart.data.datasets[0].data.shift();
+            
+            trafficChart.data.datasets[1].data.push(tcpOutKBps);
+            trafficChart.data.datasets[1].data.shift();
+            
+            trafficChart.data.datasets[2].data.push(udpInKBps);
+            trafficChart.data.datasets[2].data.shift();
+            
+            trafficChart.data.datasets[3].data.push(udpOutKBps);
+            trafficChart.data.datasets[3].data.shift();
+            
+            trafficChart.update();
+        }
 
 		function formatBytes(bytes) {
 			if (bytes === 0) return { val: '0', unit: 'B' };
@@ -569,6 +671,18 @@ const statusTemplateHTML = `
 
                         const lastTotal = lastStats.TcpBytesIn + lastStats.TcpBytesOut + lastStats.UdpBytesIn + lastStats.UdpBytesOut;
                         setRate('total-rate', totalBytes, lastTotal, dt, '⇄');
+                        
+                        const tcpInRate = (data.TcpBytesIn - lastStats.TcpBytesIn) / dt;
+                        const tcpOutRate = (data.TcpBytesOut - lastStats.TcpBytesOut) / dt;
+                        const udpInRate = (data.UdpBytesIn - lastStats.UdpBytesIn) / dt;
+                        const udpOutRate = (data.UdpBytesOut - lastStats.UdpBytesOut) / dt;
+                        
+                        updateChart(
+                            Math.max(0, tcpInRate),
+                            Math.max(0, tcpOutRate),
+                            Math.max(0, udpInRate),
+                            Math.max(0, udpOutRate)
+                        );
 					}
 					lastStats = data;
 				})
