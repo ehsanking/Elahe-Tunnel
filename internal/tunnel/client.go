@@ -48,7 +48,7 @@ func RunClient(cfg *config.Config) error {
 		KeepAlive: 30 * time.Second,
 	}
 
-	// Create a shared HTTP client with a custom transport
+	// Create a shared HTTP client with a custom transport and QoS
 	tr := &http.Transport{
 		// We still need to skip verification for the self-signed cert
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -65,7 +65,10 @@ func RunClient(cfg *config.Config) error {
 			return netDialer.DialContext(ctx, network, addr)
 		},
 	}
-	httpClient := &http.Client{Transport: tr, Timeout: 15 * time.Second}
+	
+	// Wrap the transport with QoS, allowing 50 concurrent TCP requests
+	qosTr := NewQoSTransport(tr, 50)
+	httpClient := &http.Client{Transport: qosTr, Timeout: 15 * time.Second}
 
 	// Perform an initial, insecure DNS lookup for the remote host
 	ips, err := net.LookupIP(cfg.RemoteHost)
@@ -248,7 +251,9 @@ func RunUdpProxy(localPort int, httpClient *http.Client, remoteHost, remoteIP st
 			udpSessionMutex.Unlock()
 
 			if ok {
-				localConn.WriteToUDP(parts[1], originalAddr)
+				n, _ := localConn.WriteToUDP(parts[1], originalAddr)
+				atomic.AddUint64(&udpBytesOut, uint64(n))
+				atomic.AddUint64(&udpPacketsOut, 1)
 			}
 		}
 	}()
@@ -256,11 +261,21 @@ func RunUdpProxy(localPort int, httpClient *http.Client, remoteHost, remoteIP st
 	// Main loop to read from local applications and forward to the DTLS tunnel.
 	buf := make([]byte, 4096)
 	for {
-		n, remoteUdpAddr, err := localConn.ReadFromUDP(buf)
+		// Dynamic payload size adjustment
+		currentSize := atomic.LoadUint64(&currentUdpPayloadSize)
+		// Ensure we don't exceed buffer size
+		if currentSize > 4096 {
+			currentSize = 4096
+		}
+		
+		n, remoteUdpAddr, err := localConn.ReadFromUDP(buf[:currentSize])
 		if err != nil {
 			logger.Error.Printf("Failed to read from local UDP conn: %v", err)
 			continue
 		}
+		
+		atomic.AddUint64(&udpBytesIn, uint64(n))
+		atomic.AddUint64(&udpPacketsIn, 1)
 
 		// Store the address so we can send responses back.
 		udpSessionMutex.Lock()
@@ -269,9 +284,35 @@ func RunUdpProxy(localPort int, httpClient *http.Client, remoteHost, remoteIP st
 
 		// Prepend the destination and send it over the DTLS connection.
 		payload := append([]byte(cfg.DestinationUdpHost+"\n"), buf[:n]...)
+		
+		start := time.Now()
 		if _, err := dtlsConn.Write(payload); err != nil {
 			logger.Error.Printf("DTLS write error: %v", err)
+			// On error, decrease payload size aggressively
+			newSize := currentSize / 2
+			if newSize < minUdpPayloadSize {
+				newSize = minUdpPayloadSize
+			}
+			atomic.StoreUint64(&currentUdpPayloadSize, newSize)
 			return
+		}
+		
+		// Adjust payload size based on write duration
+		duration := time.Since(start)
+		if duration < 10*time.Millisecond {
+			// Fast write, increase payload size
+			newSize := currentSize + udpSizeStep
+			if newSize > maxUdpPayloadSize {
+				newSize = maxUdpPayloadSize
+			}
+			atomic.StoreUint64(&currentUdpPayloadSize, newSize)
+		} else if duration > 100*time.Millisecond {
+			// Slow write, decrease payload size
+			newSize := currentSize - udpSizeStep
+			if newSize < minUdpPayloadSize {
+				newSize = minUdpPayloadSize
+			}
+			atomic.StoreUint64(&currentUdpPayloadSize, newSize)
 		}
 	}
 }
@@ -332,7 +373,10 @@ func runProxyServer(cfg *config.Config) {
 			return netDialer.DialContext(ctx, network, addr)
 		},
 	}
-	forwardHttpClient := &http.Client{Transport: tr, Timeout: 15 * time.Second}
+	
+	// Wrap the transport with QoS, allowing 50 concurrent TCP requests
+	qosTr := NewQoSTransport(tr, 50)
+	forwardHttpClient := &http.Client{Transport: qosTr, Timeout: 15 * time.Second}
 
 	proxyHandler := http.HandlerFunc(handleProxyRequest(listenKey, forwardKey, cfg, forwardHttpClient))
 

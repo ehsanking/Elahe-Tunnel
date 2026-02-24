@@ -1,6 +1,10 @@
 package stats
 
-import "sync/atomic"
+import (
+	"runtime"
+	"sync/atomic"
+	"time"
+)
 
 // Global atomic counters for tunnel metrics.
 var (
@@ -46,10 +50,15 @@ type Status struct {
 	UdpBytesOut          uint64 `json:"UdpBytesOut"`
 	LastSuccessfulPing   int64  `json:"LastSuccessfulPing"`
 	ConnectionHealth     string `json:"ConnectionHealth"`
+	SystemMemoryUsage    uint64 `json:"SystemMemoryUsage"`
+	NumGoroutines        int    `json:"NumGoroutines"`
 }
 
 // GetStatus gathers all current stats and returns a Status object.
 func GetStatus() Status {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
 	status := Status{
 		TcpActiveConnections: GetTcpActiveConnections(),
 		TcpBytesIn:           GetTcpBytesIn(),
@@ -57,6 +66,8 @@ func GetStatus() Status {
 		UdpBytesIn:           GetUdpBytesIn(),
 		UdpBytesOut:          GetUdpBytesOut(),
 		LastSuccessfulPing:   GetLastSuccessfulPing(),
+		SystemMemoryUsage:    m.Alloc,
+		NumGoroutines:        runtime.NumGoroutine(),
 	}
 
 	if time.Now().Unix()-status.LastSuccessfulPing < 90 {
