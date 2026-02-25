@@ -22,6 +22,7 @@ type Config struct {
 	WebPanelUser       string `json:"web_panel_user,omitempty"`
 	WebPanelPass       string `json:"web_panel_pass,omitempty"`
 	WebPanelPort       int    `json:"web_panel_port,omitempty"`
+	WebPanel2FASecret  string `json:"web_panel_2fa_secret,omitempty"`
 }
 
 // SaveConfig saves the given configuration to the config file.

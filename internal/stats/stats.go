@@ -2,6 +2,7 @@ package stats
 
 import (
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -23,12 +24,60 @@ var (
 	// DNS Stats
 	dnsQueries uint64
 	dnsErrors  uint64
+	
+	// Active Connections Tracking
+	activeConnections = make(map[string]*ConnectionInfo)
+	connsMu           sync.RWMutex
 )
+
+type ConnectionInfo struct {
+	ID        string
+	Src       string
+	Dst       string
+	StartTime time.Time
+	Protocol  string
+}
 
 // TCP Functions
 func AddTcpActiveConnection()    { atomic.AddInt64(&tcpActiveConnections, 1) }
 func RemoveTcpActiveConnection() { atomic.AddInt64(&tcpActiveConnections, -1) }
 func GetTcpActiveConnections() int64 { return atomic.LoadInt64(&tcpActiveConnections) }
+
+func RegisterConnection(id, src, dst, protocol string) {
+	connsMu.Lock()
+	defer connsMu.Unlock()
+	activeConnections[id] = &ConnectionInfo{
+		ID:        id,
+		Src:       src,
+		Dst:       dst,
+		StartTime: time.Now(),
+		Protocol:  protocol,
+	}
+	if protocol == "TCP" {
+		AddTcpActiveConnection()
+	}
+}
+
+func UnregisterConnection(id string) {
+	connsMu.Lock()
+	defer connsMu.Unlock()
+	if conn, exists := activeConnections[id]; exists {
+		if conn.Protocol == "TCP" {
+			RemoveTcpActiveConnection()
+		}
+		delete(activeConnections, id)
+	}
+}
+
+func GetActiveConnectionsList() []ConnectionInfo {
+	connsMu.RLock()
+	defer connsMu.RUnlock()
+	list := make([]ConnectionInfo, 0, len(activeConnections))
+	for _, conn := range activeConnections {
+		list = append(list, *conn)
+	}
+	return list
+}
 
 // DNS Functions
 func AddDnsQuery() { atomic.AddUint64(&dnsQueries, 1) }

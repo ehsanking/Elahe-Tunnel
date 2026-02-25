@@ -107,8 +107,7 @@ func RunClient(cfg *config.Config) error {
 			fmt.Printf("Failed to accept local connection: %v\n", err)
 			continue
 		}
-		stats.AddTcpActiveConnection()
-go handleClientConnection(localConn, httpClient, remoteIP, key, cfg)
+		go handleClientConnection(localConn, httpClient, remoteIP, key, cfg)
 	}
 }
 
@@ -559,9 +558,6 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 }
 
 func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteIP string, key []byte, cfg *config.Config) {
-	defer stats.RemoveTcpActiveConnection()
-	defer localConn.Close()
-
 	// Generate Session ID
 	sidBytes, err := crypto.GenerateKey()
 	if err != nil {
@@ -569,6 +565,10 @@ func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteI
 		return
 	}
 	sessionID := hex.EncodeToString(sidBytes[:8])
+
+	stats.RegisterConnection(sessionID, localConn.RemoteAddr().String(), cfg.DestinationHost, "TCP")
+	defer stats.UnregisterConnection(sessionID)
+	defer localConn.Close()
 
 	buf := make([]byte, 32*1024)
 

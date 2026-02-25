@@ -98,13 +98,13 @@ const statusTemplateHTML = `
             <i class="fa-solid fa-chart-line"></i>
             <span>Dashboard</span>
         </a>
-        <a href="#" class="nav-item">
+        <a href="/connections" class="nav-item">
             <i class="fa-solid fa-network-wired"></i>
             <span>Connections</span>
         </a>
-        <a href="#" class="nav-item">
-            <i class="fa-solid fa-server"></i>
-            <span>Server Status</span>
+        <a href="/logs" class="nav-item">
+            <i class="fa-solid fa-file-lines"></i>
+            <span>System Logs</span>
         </a>
         <a href="#" class="nav-item">
             <i class="fa-solid fa-gear"></i>

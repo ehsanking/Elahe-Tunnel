@@ -178,14 +178,53 @@ func setupInternal() {
 			cfg.WebPanelUser = user
 		}
 
-		fmt.Print("Enter Web Panel Password: ")
-		pass, _ := reader.ReadString('\n')
-		pass = strings.TrimSpace(pass)
-		if pass == "" {
-			fmt.Println("Password cannot be empty.")
-			os.Exit(1)
+		for {
+			fmt.Print("Enter Web Panel Password (min 8 chars, 1 uppercase, 1 number): ")
+			pass, _ := reader.ReadString('\n')
+			pass = strings.TrimSpace(pass)
+			
+			if len(pass) < 8 {
+				fmt.Println("Password must be at least 8 characters long.")
+				continue
+			}
+			
+			hasUpper := false
+			hasNumber := false
+			for _, char := range pass {
+				if char >= 'A' && char <= 'Z' {
+					hasUpper = true
+				}
+				if char >= '0' && char <= '9' {
+					hasNumber = true
+				}
+			}
+			
+			if !hasUpper || !hasNumber {
+				fmt.Println("Password must contain at least one uppercase letter and one number.")
+				continue
+			}
+			
+			cfg.WebPanelPass = pass
+			break
 		}
-		cfg.WebPanelPass = pass
+
+		fmt.Print("Do you want to enable Two-Factor Authentication (2FA)? (y/N): ")
+		enable2FA, _ := reader.ReadString('\n')
+		enable2FA = strings.TrimSpace(strings.ToLower(enable2FA))
+
+		if enable2FA == "y" || enable2FA == "yes" {
+			secret, err := crypto.GenerateTOTPSecret()
+			if err != nil {
+				fmt.Printf("Failed to generate 2FA secret: %v\n", err)
+			} else {
+				cfg.WebPanel2FASecret = secret
+				fmt.Println("\n========================================================")
+				fmt.Println("✅ 2FA Enabled!")
+				fmt.Printf("Your 2FA Secret Key is: %s\n", secret)
+				fmt.Println("Please add this key to your Authenticator app (Google Authenticator, Authy, etc.).")
+				fmt.Println("========================================================\n")
+			}
+		}
 	}
 
 	if err := config.SaveConfig(cfg); err != nil {

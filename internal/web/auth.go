@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ehsanking/elahe-tunnel/internal/config"
+	"github.com/ehsanking/elahe-tunnel/internal/crypto"
 )
 
 var (
@@ -38,8 +39,17 @@ func LoginHandler(cfg *config.Config) http.HandlerFunc {
 		if r.Method == "POST" {
 			username := r.FormValue("username")
 			password := r.FormValue("password")
+			totpCode := r.FormValue("totp")
 
 			if username == cfg.WebPanelUser && password == cfg.WebPanelPass {
+				if cfg.WebPanel2FASecret != "" {
+					if !crypto.ValidateTOTP(cfg.WebPanel2FASecret, totpCode) {
+						w.Header().Set("Content-Type", "text/html")
+						fmt.Fprint(w, loginPageErrorHTML)
+						return
+					}
+				}
+
 				sessionID, err := generateSessionID()
 				if err != nil {
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -140,6 +150,10 @@ const loginPageHTML = `
                 <label for="password">Password</label>
                 <input type="password" id="password" name="password" required>
             </div>
+            <div class="form-group">
+                <label for="totp">2FA Code (if enabled)</label>
+                <input type="text" id="totp" name="totp" placeholder="123456">
+            </div>
             <button type="submit">Log In</button>
         </form>
     </div>
@@ -169,7 +183,7 @@ const loginPageErrorHTML = `
 <body>
     <div class="login-container">
         <h2>Elahe Tunnel Login</h2>
-        <div class="error">Invalid username or password</div>
+        <div class="error">Invalid username, password, or 2FA code</div>
         <form method="POST" action="/login">
             <div class="form-group">
                 <label for="username">Username</label>
@@ -178,6 +192,10 @@ const loginPageErrorHTML = `
             <div class="form-group">
                 <label for="password">Password</label>
                 <input type="password" id="password" name="password" required>
+            </div>
+            <div class="form-group">
+                <label for="totp">2FA Code (if enabled)</label>
+                <input type="text" id="totp" name="totp" placeholder="123456">
             </div>
             <button type="submit">Log In</button>
         </form>
