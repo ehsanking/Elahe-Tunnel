@@ -32,10 +32,18 @@ var runCmd = &cobra.Command{
 
 		switch cfg.NodeType {
 		case "internal":
-			tunnel.RunClient(cfg)
+			if err := tunnel.RunClient(cfg); err != nil {
+				fmt.Printf("Client error: %v\n", err)
+			}
 		case "external":
-			key, _ := crypto.DecodeBase64Key(cfg.ConnectionKey)
-			tunnel.RunServer(key)
+			key, err := crypto.DecodeBase64Key(cfg.ConnectionKey)
+			if err != nil {
+				fmt.Printf("Error decoding key: %v\n", err)
+				return
+			}
+			if err := tunnel.RunServer(key); err != nil {
+				fmt.Printf("Server error: %v\n", err)
+			}
 		default:
 			fmt.Printf("Error: Invalid node type '%s'. Please run setup first.\n", cfg.NodeType)
 		}
