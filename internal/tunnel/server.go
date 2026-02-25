@@ -56,6 +56,14 @@ func runDtlsServer(key []byte) {
 	}
 
 	dtlsListener, err := dtls.Listen("udp", udpAddr, &dtls.Config{
+		PSK: func(hint []byte) ([]byte, error) {
+			return key, nil
+		},
+		PSKIdentityHint: []byte("elahe-tunnel"),
+		CipherSuites: []dtls.CipherSuiteID{
+			dtls.TLS_PSK_WITH_AES_128_GCM_SHA256,
+			dtls.TLS_PSK_WITH_AES_128_CCM_8,
+		},
 		Certificates:         []tls.Certificate{cert},
 		InsecureSkipVerify:   true, // Not needed for server, but good practice
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,

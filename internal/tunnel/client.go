@@ -201,7 +201,15 @@ func RunUdpProxy(localPort int, httpClient *http.Client, remoteHost, remoteIP st
 	}
 
 	dtlsConn, err := dtls.Dial("udp", serverAddr, &dtls.Config{
-		InsecureSkipVerify: true, // We're not verifying the server's cert, as it's self-signed
+		PSK: func(hint []byte) ([]byte, error) {
+			return key, nil
+		},
+		PSKIdentityHint: []byte("elahe-tunnel"),
+		CipherSuites: []dtls.CipherSuiteID{
+			dtls.TLS_PSK_WITH_AES_128_GCM_SHA256,
+			dtls.TLS_PSK_WITH_AES_128_CCM_8,
+		},
+		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		logger.Error.Printf("Failed to establish DTLS connection: %v", err)
@@ -496,13 +504,17 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 	defer ticker.Stop()
 
 	for {
-		pingData, _ := crypto.Encrypt([]byte("SEARCH_TUNNEL_PING"), key)
+		pingData, err := crypto.Encrypt([]byte("SEARCH_TUNNEL_PING"), key)
+		if err != nil {
+			logger.Error.Printf("Failed to encrypt ping data: %v", err)
+			time.Sleep(baseBackoff)
+			continue
+		}
 		req, _ := masquerade.WrapInHttpRequest(pingData, host) // Masquerade with the original hostname
 		req.URL.Scheme = "https"
 		req.URL.Host = remoteIP // Connect to the resolved IP
 		req.URL.Path = "/favicon.ico"
 
-		var err error
 		for i := 0; i < maxRetries; i++ {
 			var resp *http.Response
 			resp, err = httpClient.Do(req)

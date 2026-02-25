@@ -40,7 +40,10 @@ func DecodeBase64Key(encodedKey string) ([]byte, error) {
 
 // Encrypt encrypts data using AES-GCM.
 func Encrypt(plaintext []byte, key []byte) ([]byte, error) {
-	encKey, _ := splitKey(key)
+	encKey, _, err := splitKey(key)
+	if err != nil {
+		return nil, err
+	}
 	c, err := aes.NewCipher(encKey)
 	if err != nil {
 		return nil, err
@@ -61,7 +64,10 @@ func Encrypt(plaintext []byte, key []byte) ([]byte, error) {
 
 // Decrypt decrypts data using AES-GCM.
 func Decrypt(ciphertext []byte, key []byte) ([]byte, error) {
-	encKey, _ := splitKey(key)
+	encKey, _, err := splitKey(key)
+	if err != nil {
+		return nil, err
+	}
 	c, err := aes.NewCipher(encKey)
 	if err != nil {
 		return nil, err
@@ -83,7 +89,12 @@ func Decrypt(ciphertext []byte, key []byte) ([]byte, error) {
 
 // GenerateHMAC creates an HMAC-SHA256 hash of the data.
 func GenerateHMAC(data, key []byte) []byte {
-	_, hmacKey := splitKey(key)
+	_, hmacKey, err := splitKey(key)
+	if err != nil {
+		// Should not happen if key is validated, but return nil or panic?
+		// Since this function signature returns []byte, let's panic for now as this is a critical error.
+		panic(err)
+	}
 	h := hmac.New(sha256.New, hmacKey)
 	h.Write(data)
 	return h.Sum(nil)
@@ -96,8 +107,11 @@ func VerifyHMAC(data, receivedHmac, key []byte) bool {
 }
 
 // splitKey divides a 32-byte key into two 16-byte keys for encryption and HMAC.
-func splitKey(key []byte) (encKey, hmacKey []byte) {
-	return key[:16], key[16:]
+func splitKey(key []byte) (encKey, hmacKey []byte, err error) {
+	if len(key) < 32 {
+		return nil, nil, fmt.Errorf("crypto: invalid key length %d, must be at least 32 bytes", len(key))
+	}
+	return key[:16], key[16:], nil
 }
 
 // GenerateTLSConfig creates a self-signed TLS certificate and key.
