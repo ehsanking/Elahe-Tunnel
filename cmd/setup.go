@@ -3,9 +3,12 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ehsanking/elahe-tunnel/internal/config"
 	"github.com/ehsanking/elahe-tunnel/internal/crypto"
@@ -55,6 +58,9 @@ var setupCmd = &cobra.Command{
 }
 
 func setupExternal() {
+	// Check and free port 443
+	checkAndFreePort443()
+
 	// Check if config already exists
 	if _, err := os.Stat(config.ConfigFileName); err == nil {
 		fmt.Printf("\n⚠️  WARNING: A configuration file (%s) already exists!\n", config.ConfigFileName)
@@ -237,4 +243,50 @@ func setupInternal() {
 
 func init() {
 	rootCmd.AddCommand(setupCmd)
+}
+
+func checkAndFreePort443() {
+	fmt.Println("Checking port 443 availability...")
+
+	// Try to listen on 443
+	ln, err := net.Listen("tcp", ":443")
+	if err == nil {
+		ln.Close()
+		fmt.Println("✅ Port 443 is free.")
+		return
+	}
+
+	fmt.Println("⚠️  Port 443 is busy. Attempting to free it...")
+
+	// Try to kill process using port 443
+	// Using fuser
+	cmd := exec.Command("fuser", "-k", "443/tcp")
+	if err := cmd.Run(); err != nil {
+		// Try lsof + kill if fuser fails or is not installed
+		// This is a bit complex to do reliably in Go without external tools, 
+		// but since we installed lsof/psmisc in install.sh, we can rely on them.
+		fmt.Printf("Failed to kill process using fuser: %v. Trying lsof...\n", err)
+		
+		out, err := exec.Command("lsof", "-t", "-i:443").Output()
+		if err == nil && len(out) > 0 {
+			pid := strings.TrimSpace(string(out))
+			if pid != "" {
+				exec.Command("kill", "-9", pid).Run()
+			}
+		}
+	}
+
+	// Wait a bit
+	time.Sleep(2 * time.Second)
+
+	// Check again
+	ln, err = net.Listen("tcp", ":443")
+	if err == nil {
+		ln.Close()
+		fmt.Println("✅ Port 443 has been freed.")
+	} else {
+		fmt.Println("❌ Failed to free port 443. Please stop the service manually (e.g., nginx, apache).")
+		fmt.Println("   Run: sudo systemctl stop nginx")
+		os.Exit(1)
+	}
 }

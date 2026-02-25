@@ -26,7 +26,33 @@ echo -e "${GREEN}   Elahe Tunnel Single-Line Installer v1.0.0 (Final) ${NC}"
 echo -e "${GREEN}=========================================${NC}"
 
 # 1. Install Dependencies
-apt-get update -qq && apt-get install -y -qq unzip curl file &> /dev/null
+apt-get update -qq && apt-get install -y -qq unzip curl file lsof psmisc &> /dev/null
+
+# --- Port Check Function ---
+check_and_free_port_443() {
+    echo -n "Checking port 443..."
+    if lsof -i :443 > /dev/null; then
+        echo -e "${YELLOW} Port 443 is busy. Attempting to free it...${NC}"
+        
+        # Get PID
+        PID=$(lsof -t -i:443)
+        if [ -n "$PID" ]; then
+            echo -e "Killing process $PID using port 443..."
+            kill -9 $PID 2>/dev/null || true
+            sleep 2
+        fi
+        
+        # Double check
+        if lsof -i :443 > /dev/null; then
+             echo -e "${RED} Failed to free port 443. Please manually stop the service (e.g., nginx, apache) using it.${NC}"
+             echo -e "${RED} Run: sudo systemctl stop nginx (or apache2)${NC}"
+        else
+             echo -e "${GREEN} Port 443 is now free and reserved for Elahe Tunnel.${NC}"
+        fi
+    else
+        echo -e "${GREEN} Port 443 is free.${NC}"
+    fi
+}
 
 # Enable TCP Fast Open in kernel
 if [ -f /proc/sys/net/ipv4/tcp_fastopen ]; then
