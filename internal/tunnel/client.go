@@ -44,6 +44,11 @@ func RunClient(cfg *config.Config) error {
 		return fmt.Errorf("invalid connection key: %w", err)
 	}
 
+	port := cfg.TunnelPort
+	if port == 0 {
+		port = 443
+	}
+
 	// Create a custom dialer to resolve the remote host through the tunnel itself
 	netDialer := &net.Dialer{
 		Timeout:   30 * time.Second,
@@ -57,10 +62,8 @@ func RunClient(cfg *config.Config) error {
 		// Use our custom dialer
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			// If we're dialing the remote host, we need to resolve it securely
-			if addr == cfg.RemoteHost+":443" {
-				// This is a simplified example. A real implementation would need
-				// to handle the bootstrapping problem of resolving the initial IP.
-				// For now, we assume the initial IP is provided or resolved once insecurely.
+			targetAddr := fmt.Sprintf("%s:%d", cfg.RemoteHost, port)
+			if addr == targetAddr {
 				return netDialer.DialContext(ctx, network, addr)
 			}
 			// For all other addresses, use the default dialer
@@ -81,7 +84,7 @@ func RunClient(cfg *config.Config) error {
 	fmt.Printf("Resolved remote host %s to %s\n", cfg.RemoteHost, remoteIP)
 
 	// Start the connection manager in the background
-	go manageConnection(httpClient, cfg.RemoteHost, remoteIP, key)
+	go manageConnection(httpClient, cfg.RemoteHost, remoteIP, key, port)
 
 	// If enabled, start the DNS proxy
 	if cfg.DnsProxyEnabled {
@@ -204,8 +207,12 @@ var (
 
 // RunUdpProxy starts a local UDP proxy to intercept and tunnel UDP packets over DTLS.
 func RunUdpProxy(localPort int, httpClient *http.Client, remoteHost, remoteIP string, key []byte, cfg *config.Config) {
+	port := cfg.TunnelPort
+	if port == 0 {
+		port = 443
+	}
 	// Establish a single DTLS connection to the server.
-	serverAddr, err := net.ResolveUDPAddr("udp", remoteIP+":443")
+	serverAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", remoteIP, port))
 	if err != nil {
 		logger.Error.Printf("Failed to resolve remote DTLS address: %v", err)
 		return
@@ -343,7 +350,13 @@ func forwardDnsQuery(query []byte, cfg *config.Config, httpClient *http.Client, 
 		return nil, fmt.Errorf("failed to encrypt DNS query: %v", err)
 	}
 
-	req, err := masquerade.WrapInHttpRequest(encrypted, cfg.RemoteHost)
+	port := cfg.TunnelPort
+	if port == 0 {
+		port = 443
+	}
+	targetHost := fmt.Sprintf("%s:%d", cfg.RemoteHost, port)
+
+	req, err := masquerade.WrapInHttpRequest(encrypted, targetHost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to wrap DNS query in HTTP request: %v", err)
 	}
@@ -503,7 +516,7 @@ func handleProxyRequest(listenKey, forwardKey []byte, cfg *config.Config, httpCl
 
 // manageConnection runs in the background, periodically checking the connection
 // and attempting to reconnect with exponential backoff if it fails.
-func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte) {
+func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte, port int) {
 	const (
 		pingInterval  = 1 * time.Minute
 		maxRetries    = 10
@@ -514,6 +527,9 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 
+	targetHost := fmt.Sprintf("%s:%d", host, port)
+	targetIP := fmt.Sprintf("%s:%d", remoteIP, port)
+
 	for {
 		pingData, err := crypto.Encrypt([]byte("SEARCH_TUNNEL_PING"), key)
 		if err != nil {
@@ -521,9 +537,9 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 			time.Sleep(baseBackoff)
 			continue
 		}
-		req, _ := masquerade.WrapInHttpRequest(pingData, host) // Masquerade with the original hostname
+		req, _ := masquerade.WrapInHttpRequest(pingData, targetHost) // Masquerade with the original hostname and port
 		req.URL.Scheme = "https"
-		req.URL.Host = remoteIP // Connect to the resolved IP
+		req.URL.Host = targetIP // Connect to the resolved IP and port
 		req.URL.Path = "/favicon.ico"
 
 		for i := 0; i < maxRetries; i++ {
@@ -555,10 +571,10 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 				if strings.Contains(err.Error(), "connection refused") {
 					fmt.Println("\n⚠️  TROUBLESHOOTING TIP:")
 					fmt.Println("   The remote server (External) refused the connection.")
-					fmt.Println("   1. SSH into your external server (91.107.249.180).")
+					fmt.Printf("   1. SSH into your external server (%s).\n", remoteIP)
 					fmt.Println("   2. Ensure 'elahe-tunnel' is running.")
-					fmt.Println("   3. Check if it's listening on port 443: 'netstat -tulnp | grep 443'")
-					fmt.Println("   4. Check firewall settings (ufw/iptables) to allow traffic on port 443.")
+					fmt.Printf("   3. Check if it's listening on port %d: 'netstat -tulnp | grep %d'\n", port, port)
+					fmt.Printf("   4. Check firewall settings (ufw/iptables) to allow traffic on port %d.\n", port)
 				}
 				break
 			}
@@ -624,16 +640,22 @@ func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteI
 			return
 		}
 
+		port := cfg.TunnelPort
+		if port == 0 {
+			port = 443
+		}
+		targetHost := fmt.Sprintf("%s:%d", cfg.RemoteHost, port)
+
 		// The host in the request must match the CN of the certificate (www.google.com)
 		// but the request itself goes to the user's server IP.
-		req, err := masquerade.WrapInHttpRequest(encrypted, "www.google.com")
+		req, err := masquerade.WrapInHttpRequest(encrypted, targetHost)
 		if err != nil {
 			fmt.Printf("Failed to wrap HTTP request: %v\n", err)
 			return
 		}
 		// Override the request URL to point to the actual server IP
 		req.URL.Scheme = "https"
-		req.URL.Host = remoteIP
+		req.URL.Host = fmt.Sprintf("%s:%d", remoteIP, port)
 
 		resp, err := httpClient.Do(req)
 		if err != nil {

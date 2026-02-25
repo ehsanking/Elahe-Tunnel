@@ -24,6 +24,7 @@ type Config struct {
 	WebPanelPort       int    `json:"web_panel_port,omitempty"`
 	WebPanel2FASecret  string `json:"web_panel_2fa_secret,omitempty"`
 	LocalPort          int    `json:"local_port,omitempty"`
+	TunnelPort         int    `json:"tunnel_port,omitempty"`
 }
 
 // SaveConfig saves the given configuration to the config file.

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ehsanking/elahe-tunnel/internal/config"
 	"github.com/ehsanking/elahe-tunnel/internal/crypto"
 	"github.com/ehsanking/elahe-tunnel/internal/logger"
 	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
@@ -19,7 +20,17 @@ import (
 )
 
 // RunServer starts the external node server.
-func RunServer(key []byte) error {
+func RunServer(cfg *config.Config) error {
+	key, err := crypto.DecodeBase64Key(cfg.ConnectionKey)
+	if err != nil {
+		return fmt.Errorf("failed to decode key: %w", err)
+	}
+
+	port := cfg.TunnelPort
+	if port == 0 {
+		port = 443
+	}
+
 	limiter := rate.NewLimiter(rate.Limit(10), 50) // Allow 10 requests per second, with a burst of 50
 
 	pingHandler := http.HandlerFunc(handlePingRequest(key))
@@ -29,12 +40,13 @@ func RunServer(key []byte) error {
 	http.Handle("/", limitMiddleware(limiter, tunnelHandler))
 
 	// Start the DTLS server in a separate goroutine.
-	go runDtlsServer(key)
+	go runDtlsServer(key, port)
 
-	logger.Info.Println("External server listening on :443")
-	err := http.ListenAndServeTLS(":443", "cert.pem", "key.pem", nil)
+	addr := fmt.Sprintf(":%d", port)
+	logger.Info.Printf("External server listening on %s\n", addr)
+	err = http.ListenAndServeTLS(addr, "cert.pem", "key.pem", nil)
 	if err != nil {
-		return fmt.Errorf("server failed: %w. Check if port 443 is free and you have root privileges", err)
+		return fmt.Errorf("server failed: %w. Check if port %d is free and you have root privileges", err, port)
 	}
 	return nil
 }
@@ -49,8 +61,8 @@ func limitMiddleware(limiter *rate.Limiter, next http.Handler) http.Handler {
 	})
 }
 
-func runDtlsServer(key []byte) {
-	udpAddr, err := net.ResolveUDPAddr("udp", ":443")
+func runDtlsServer(key []byte, port int) {
+	udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		logger.Error.Printf("Failed to resolve UDP address: %v", err)
 		return
@@ -74,7 +86,7 @@ func runDtlsServer(key []byte) {
 		return
 	}
 
-	logger.Info.Println("DTLS server listening on :443")
+	logger.Info.Printf("DTLS server listening on :%d\n", port)
 
 	for {
 		conn, err := dtlsListener.Accept()

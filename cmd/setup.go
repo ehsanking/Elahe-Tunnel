@@ -58,8 +58,18 @@ var setupCmd = &cobra.Command{
 }
 
 func setupExternal() {
-	// Check and free port 443
-	checkAndFreePort443()
+	reader := bufio.NewReader(os.Stdin)
+
+	fmt.Print("Enter the port for the tunnel to listen on (default 443): ")
+	portStr, _ := reader.ReadString('\n')
+	portStr = strings.TrimSpace(portStr)
+	tunnelPort := 443
+	if portStr != "" {
+		tunnelPort, _ = strconv.Atoi(portStr)
+	}
+
+	// Check and free port
+	checkAndFreePort(tunnelPort)
 
 	// Check if config already exists
 	if _, err := os.Stat(config.ConfigFileName); err == nil {
@@ -107,6 +117,7 @@ func setupExternal() {
 	cfg := &config.Config{
 		NodeType:      "external",
 		ConnectionKey: encodedKey,
+		TunnelPort:    tunnelPort,
 	}
 	if err := config.SaveConfig(cfg); err != nil {
 		fmt.Println("Error saving configuration:", err)
@@ -147,10 +158,19 @@ func setupInternal() {
 	key, _ := reader.ReadString('\n')
 	key = strings.TrimSpace(key)
 
+	fmt.Print("Enter the port of your external server (default 443): ")
+	pStr, _ := reader.ReadString('\n')
+	pStr = strings.TrimSpace(pStr)
+	tunnelPort := 443
+	if pStr != "" {
+		tunnelPort, _ = strconv.Atoi(pStr)
+	}
+
 	cfg := &config.Config{
 		NodeType:      "internal",
 		ConnectionKey: key,
 		RemoteHost:    host,
+		TunnelPort:    tunnelPort,
 	}
 
 	fmt.Print("Do you want to enable the Web Panel? (y/N): ")
@@ -260,29 +280,25 @@ func init() {
 	rootCmd.AddCommand(setupCmd)
 }
 
-func checkAndFreePort443() {
-	fmt.Println("Checking port 443 availability...")
+func checkAndFreePort(port int) {
+	fmt.Printf("Checking port %d availability...\n", port)
 
-	// Try to listen on 443
-	ln, err := net.Listen("tcp", ":443")
+	// Try to listen on port
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err == nil {
 		ln.Close()
-		fmt.Println("✅ Port 443 is free.")
+		fmt.Printf("✅ Port %d is free.\n", port)
 		return
 	}
 
-	fmt.Println("⚠️  Port 443 is busy. Attempting to free it...")
+	fmt.Printf("⚠️  Port %d is busy. Attempting to free it...\n", port)
 
-	// Try to kill process using port 443
-	// Using fuser
-	cmd := exec.Command("fuser", "-k", "443/tcp")
+	// Try to kill process using port
+	cmd := exec.Command("fuser", "-k", fmt.Sprintf("%d/tcp", port))
 	if err := cmd.Run(); err != nil {
-		// Try lsof + kill if fuser fails or is not installed
-		// This is a bit complex to do reliably in Go without external tools, 
-		// but since we installed lsof/psmisc in install.sh, we can rely on them.
 		fmt.Printf("Failed to kill process using fuser: %v. Trying lsof...\n", err)
 		
-		out, err := exec.Command("lsof", "-t", "-i:443").Output()
+		out, err := exec.Command("lsof", "-t", fmt.Sprintf("-i:%d", port)).Output()
 		if err == nil && len(out) > 0 {
 			pid := strings.TrimSpace(string(out))
 			if pid != "" {
@@ -295,13 +311,12 @@ func checkAndFreePort443() {
 	time.Sleep(2 * time.Second)
 
 	// Check again
-	ln, err = net.Listen("tcp", ":443")
+	ln, err = net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err == nil {
 		ln.Close()
-		fmt.Println("✅ Port 443 has been freed.")
+		fmt.Printf("✅ Port %d has been freed.\n", port)
 	} else {
-		fmt.Println("❌ Failed to free port 443. Please stop the service manually (e.g., nginx, apache).")
-		fmt.Println("   Run: sudo systemctl stop nginx")
+		fmt.Printf("❌ Failed to free port %d. Please stop the service manually.\n", port)
 		os.Exit(1)
 	}
 }

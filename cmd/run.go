@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"github.com/ehsanking/elahe-tunnel/internal/crypto"
 	"fmt"
 
 	"github.com/ehsanking/elahe-tunnel/internal/config"
@@ -36,12 +35,7 @@ var runCmd = &cobra.Command{
 				fmt.Printf("Client error: %v\n", err)
 			}
 		case "external":
-			key, err := crypto.DecodeBase64Key(cfg.ConnectionKey)
-			if err != nil {
-				fmt.Printf("Error decoding key: %v\n", err)
-				return
-			}
-			if err := tunnel.RunServer(key); err != nil {
+			if err := tunnel.RunServer(cfg); err != nil {
 				fmt.Printf("Server error: %v\n", err)
 			}
 		default:
