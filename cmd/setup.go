@@ -154,16 +154,16 @@ func setupInternal() {
 	if enableWeb == "y" || enableWeb == "yes" {
 		cfg.WebPanelEnabled = true
 
-		fmt.Print("Enter Web Panel Port (default 8080): ")
+		fmt.Print("Enter Web Panel Port (default 3000): ")
 		portStr, _ := reader.ReadString('\n')
 		portStr = strings.TrimSpace(portStr)
 		if portStr == "" {
-			cfg.WebPanelPort = 8080
+			cfg.WebPanelPort = 3000
 		} else {
 			port, err := strconv.Atoi(portStr)
 			if err != nil {
-				fmt.Println("Invalid port, using default 8080")
-				cfg.WebPanelPort = 8080
+				fmt.Println("Invalid port, using default 3000")
+				cfg.WebPanelPort = 3000
 			} else {
 				cfg.WebPanelPort = port
 			}

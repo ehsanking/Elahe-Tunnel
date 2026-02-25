@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"strings"
 	"sync/atomic"
 	"github.com/pion/dtls/v2"
 )
@@ -541,7 +542,14 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 
 			if i == maxRetries-1 {
 				fmt.Printf("[Health Check] Connection failed after %d attempts: %v\n", maxRetries, err)
-				// In a real app, you might want to exit or take other action here
+				if strings.Contains(err.Error(), "connection refused") {
+					fmt.Println("\n⚠️  TROUBLESHOOTING TIP:")
+					fmt.Println("   The remote server (External) refused the connection.")
+					fmt.Println("   1. SSH into your external server (91.107.249.180).")
+					fmt.Println("   2. Ensure 'elahe-tunnel' is running.")
+					fmt.Println("   3. Check if it's listening on port 443: 'netstat -tulnp | grep 443'")
+					fmt.Println("   4. Check firewall settings (ufw/iptables) to allow traffic on port 443.")
+				}
 				break
 			}
 
