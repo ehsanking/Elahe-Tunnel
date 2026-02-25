@@ -95,8 +95,8 @@ func RunClient(cfg *config.Config) error {
 		go RunUdpProxy(9091, httpClient, cfg.RemoteHost, remoteIP, key, cfg)
 	}
 
-	fmt.Println("Internal TCP proxy listening on localhost:9090")
-	localListener, err := net.Listen("tcp", "localhost:9090")
+	fmt.Println("Internal TCP proxy listening on 127.0.0.1:9090")
+	localListener, err := net.Listen("tcp", "127.0.0.1:9090")
 	if err != nil {
 		return fmt.Errorf("failed to listen on local port 9090: %w", err)
 	}
@@ -566,6 +566,15 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 }
 
 func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteIP string, key []byte, cfg *config.Config) {
+	// 1. Perform SOCKS5 handshake to get dynamic destination
+	target, err := HandleSocks5(localConn)
+	if err != nil {
+		// Fallback to default destination if SOCKS5 fails (might be a simple TCP client)
+		// Or just log and return if we want to enforce SOCKS5
+		fmt.Printf("SOCKS5 handshake failed: %v. Falling back to default destination: %s\n", err, cfg.DestinationHost)
+		target = cfg.DestinationHost
+	}
+
 	// Generate Session ID
 	sidBytes, err := crypto.GenerateKey()
 	if err != nil {
@@ -574,7 +583,7 @@ func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteI
 	}
 	sessionID := hex.EncodeToString(sidBytes[:8])
 
-	stats.RegisterConnection(sessionID, localConn.RemoteAddr().String(), cfg.DestinationHost, "TCP")
+	stats.RegisterConnection(sessionID, localConn.RemoteAddr().String(), target, "TCP")
 	defer stats.UnregisterConnection(sessionID)
 	defer localConn.Close()
 
@@ -600,7 +609,7 @@ func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteI
 
 		// Construct payload: SessionID|Destination|Payload
 		var payload []byte
-		prefix := []byte(sessionID + "|" + cfg.DestinationHost + "|")
+		prefix := []byte(sessionID + "|" + target + "|")
 		if n > 0 {
 			payload = append(prefix, buf[:n]...)
 			stats.AddTcpBytesIn(uint64(n))

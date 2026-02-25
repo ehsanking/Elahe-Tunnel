@@ -52,7 +52,8 @@ func limitMiddleware(limiter *rate.Limiter, next http.Handler) http.Handler {
 func runDtlsServer(key []byte) {
 	udpAddr, err := net.ResolveUDPAddr("udp", ":443")
 	if err != nil {
-		logger.Error.Fatalf("Failed to resolve UDP address: %v", err)
+		logger.Error.Printf("Failed to resolve UDP address: %v", err)
+		return
 	}
 
 	// DTLS with PSK does not require certificates.
@@ -69,7 +70,8 @@ func runDtlsServer(key []byte) {
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
 	})
 	if err != nil {
-		logger.Error.Fatalf("DTLS server failed to start: %v", err)
+		logger.Error.Printf("DTLS server failed to start: %v", err)
+		return
 	}
 
 	logger.Info.Println("DTLS server listening on :443")
