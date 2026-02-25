@@ -117,7 +117,7 @@ func setupInternal() {
 			}
 		}
 
-		fmt.Print("Enter Web Panel Username (default admin): ")
+		fmt.Print("Enter Web Panel Username (default: admin): ")
 		user, _ := reader.ReadString('\n')
 		user = strings.TrimSpace(user)
 		if user == "" {
@@ -128,7 +128,12 @@ func setupInternal() {
 
 		fmt.Print("Enter Web Panel Password: ")
 		pass, _ := reader.ReadString('\n')
-		cfg.WebPanelPass = strings.TrimSpace(pass)
+		pass = strings.TrimSpace(pass)
+		if pass == "" {
+			fmt.Println("Password cannot be empty.")
+			os.Exit(1)
+		}
+		cfg.WebPanelPass = pass
 	}
 
 	if err := config.SaveConfig(cfg); err != nil {

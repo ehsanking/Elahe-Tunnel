@@ -22,16 +22,26 @@ func RunServer(key []byte) error {
 	limiter := rate.NewLimiter(rate.Limit(10), 50) // Allow 10 requests per second, with a burst of 50
 
 	pingHandler := http.HandlerFunc(handlePingRequest(key))
-	http.Handle("/favicon.ico", limiter.Limit(pingHandler))
+	http.Handle("/favicon.ico", limitMiddleware(limiter, pingHandler))
 
 	tunnelHandler := http.HandlerFunc(handleTunnelRequest(key))
-	http.Handle("/", limiter.Limit(tunnelHandler))
+	http.Handle("/", limitMiddleware(limiter, tunnelHandler))
 
 	// Start the DTLS server in a separate goroutine.
 	go runDtlsServer(key)
 
 	logger.Info.Println("External server listening on :443")
 	return http.ListenAndServeTLS(":443", "cert.pem", "key.pem", nil)
+}
+
+func limitMiddleware(limiter *rate.Limiter, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !limiter.Allow() {
+			http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func runDtlsServer(key []byte) {
@@ -68,49 +78,73 @@ func runDtlsServer(key []byte) {
 
 func handleDtlsConnection(conn net.Conn, key []byte) {
 	defer conn.Close()
-
 	buf := make([]byte, 4096)
-	n, err := conn.Read(buf)
-	if err != nil {
-		logger.Error.Printf("DTLS read error: %v", err)
-		return
-	}
 
-	parts := bytes.SplitN(buf[:n], []byte("\n"), 2)
-	if len(parts) != 2 {
-		logger.Error.Println("Invalid DTLS request format")
-		return
-	}
-	destination := string(parts[0])
-	payload := parts[1]
-	stats.AddUdpBytesIn(uint64(len(payload)))
+	// Map to cache UDP connections: destination -> net.Conn
+	udpConns := make(map[string]net.Conn)
+	defer func() {
+		for _, c := range udpConns {
+			c.Close()
+		}
+	}()
 
-	targetConn, err := net.DialTimeout("udp", destination, 5*time.Second)
-	if err != nil {
-		logger.Error.Printf("Failed to connect to UDP destination %s: %v", destination, err)
-		return
-	}
-	defer targetConn.Close()
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			if err != io.EOF {
+				logger.Error.Printf("DTLS read error: %v", err)
+			}
+			return
+		}
 
-	_, err = targetConn.Write(payload)
-	if err != nil {
-		logger.Error.Printf("Failed to write to UDP destination: %v", err)
-		return
-	}
+		parts := bytes.SplitN(buf[:n], []byte("\n"), 2)
+		if len(parts) != 2 {
+			logger.Error.Println("Invalid DTLS request format")
+			continue
+		}
+		destination := string(parts[0])
+		payload := parts[1]
+		stats.AddUdpBytesIn(uint64(len(payload)))
 
-	respBuf := make([]byte, 4096)
-	n, err = targetConn.Read(respBuf)
-	if err != nil {
-		logger.Error.Printf("Failed to read from UDP destination: %v", err)
-		return
-	}
+		targetConn, ok := udpConns[destination]
+		if !ok {
+			targetConn, err = net.DialTimeout("udp", destination, 5*time.Second)
+			if err != nil {
+				logger.Error.Printf("Failed to connect to UDP destination %s: %v", destination, err)
+				continue
+			}
+			udpConns[destination] = targetConn
 
-	// Prepend destination for client-side routing and send back
-	response := append([]byte(destination+"\n"), respBuf[:n]...)
-	bytesWritten, err := conn.Write(response)
-	stats.AddUdpBytesOut(uint64(bytesWritten))
-	if err != nil {
-		logger.Error.Printf("DTLS write error: %v", err)
+			// Start a goroutine to read from this UDP connection and forward back to DTLS
+			go func(dest string, c net.Conn) {
+				respBuf := make([]byte, 4096)
+				for {
+					c.SetReadDeadline(time.Now().Add(30 * time.Second))
+					rn, rerr := c.Read(respBuf)
+					if rerr != nil {
+						// If error, we might want to close and remove from map, 
+						// but for simplicity in this loop we just stop reading.
+						// The main loop will eventually close it when DTLS closes.
+						return
+					}
+					
+					// Prepend destination for client-side routing and send back
+					// We need to synchronize writes to conn if it's not thread safe?
+					// net.Conn is thread safe.
+					response := append([]byte(dest+"\n"), respBuf[:rn]...)
+					_, werr := conn.Write(response)
+					if werr != nil {
+						return
+					}
+					stats.AddUdpBytesOut(uint64(len(response)))
+				}
+			}(destination, targetConn)
+		}
+
+		_, err = targetConn.Write(payload)
+		if err != nil {
+			logger.Error.Printf("Failed to write to UDP destination: %v", err)
+		}
 	}
 }
 

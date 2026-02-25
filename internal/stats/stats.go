@@ -19,12 +19,22 @@ var (
 
 	// Connection Health
 	lastSuccessfulPing int64 // Unix timestamp
+
+	// DNS Stats
+	dnsQueries uint64
+	dnsErrors  uint64
 )
 
 // TCP Functions
 func AddTcpActiveConnection()    { atomic.AddInt64(&tcpActiveConnections, 1) }
 func RemoveTcpActiveConnection() { atomic.AddInt64(&tcpActiveConnections, -1) }
 func GetTcpActiveConnections() int64 { return atomic.LoadInt64(&tcpActiveConnections) }
+
+// DNS Functions
+func AddDnsQuery() { atomic.AddUint64(&dnsQueries, 1) }
+func AddDnsError() { atomic.AddUint64(&dnsErrors, 1) }
+func GetDnsQueries() uint64 { return atomic.LoadUint64(&dnsQueries) }
+func GetDnsErrors() uint64  { return atomic.LoadUint64(&dnsErrors) }
 
 func AddTcpBytesIn(n uint64)  { atomic.AddUint64(&tcpBytesIn, n) }
 func AddTcpBytesOut(n uint64) { atomic.AddUint64(&tcpBytesOut, n) }
@@ -48,6 +58,8 @@ type Status struct {
 	TcpBytesOut          uint64 `json:"TcpBytesOut"`
 	UdpBytesIn           uint64 `json:"UdpBytesIn"`
 	UdpBytesOut          uint64 `json:"UdpBytesOut"`
+	DnsQueries           uint64 `json:"DnsQueries"`
+	DnsErrors            uint64 `json:"DnsErrors"`
 	LastSuccessfulPing   int64  `json:"LastSuccessfulPing"`
 	ConnectionHealth     string `json:"ConnectionHealth"`
 	SystemMemoryUsage    uint64 `json:"SystemMemoryUsage"`
@@ -65,6 +77,8 @@ func GetStatus() Status {
 		TcpBytesOut:          GetTcpBytesOut(),
 		UdpBytesIn:           GetUdpBytesIn(),
 		UdpBytesOut:          GetUdpBytesOut(),
+		DnsQueries:           GetDnsQueries(),
+		DnsErrors:            GetDnsErrors(),
 		LastSuccessfulPing:   GetLastSuccessfulPing(),
 		SystemMemoryUsage:    m.Alloc,
 		NumGoroutines:        runtime.NumGoroutine(),

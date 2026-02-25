@@ -5,7 +5,6 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/ehsanking/elahe-tunnel/internal/stats"
 )
@@ -31,6 +30,7 @@ const statusTemplateHTML = `
             --accent-success: #10b981;
             --accent-danger: #ef4444;
             --accent-warning: #f59e0b;
+            --accent-info: #06b6d4;
             --border-color: #334155;
             --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
             --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
@@ -246,6 +246,13 @@ const statusTemplateHTML = `
                             <td id="udp-rate-in">0 B/s</td>
                             <td id="udp-rate-out">0 B/s</td>
                         </tr>
+                        <tr>
+                            <td><i class="fa-solid fa-circle" style="color: var(--accent-info); font-size: 8px; margin-right: 8px;"></i>DNS</td>
+                            <td id="dns-queries-table">0</td>
+                            <td id="dns-errors-table">0</td>
+                            <td id="dns-rate">0/s</td>
+                            <td>-</td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -307,6 +314,16 @@ const statusTemplateHTML = `
                         fill: true,
                         tension: 0.4,
                         pointRadius: 0
+                    },
+                    {
+                        label: 'DNS Queries',
+                        data: [...initialData],
+                        borderColor: '#06b6d4',
+                        backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0
                     }
                 ]
             },
@@ -330,6 +347,9 @@ const statusTemplateHTML = `
                         padding: 12,
                         callbacks: {
                             label: function(context) {
+                                if (context.dataset.label.includes('DNS')) {
+                                    return context.dataset.label + ': ' + context.raw.toFixed(1) + '/s';
+                                }
                                 return context.dataset.label + ': ' + formatBytes(context.raw * 1024) + '/s';
                             }
                         }
@@ -385,15 +405,25 @@ const statusTemplateHTML = `
                     document.getElementById('tcp-out-table').textContent = formatBytes(data.TcpBytesOut);
                     document.getElementById('udp-in-table').textContent = formatBytes(data.UdpBytesIn);
                     document.getElementById('udp-out-table').textContent = formatBytes(data.UdpBytesOut);
+                    document.getElementById('dns-queries-table').textContent = data.DnsQueries;
+                    document.getElementById('dns-errors-table').textContent = data.DnsErrors;
 
                     // Calculate Rates & Update Chart
                     if (lastStats) {
                         const dt = fetchInterval / 1000;
                         
-                        const tcpInRate = (data.TcpBytesIn - lastStats.TcpBytesIn) / dt;
-                        const tcpOutRate = (data.TcpBytesOut - lastStats.TcpBytesOut) / dt;
-                        const udpInRate = (data.UdpBytesIn - lastStats.UdpBytesIn) / dt;
-                        const udpOutRate = (data.UdpBytesOut - lastStats.UdpBytesOut) / dt;
+                        let tcpInRate = (data.TcpBytesIn - lastStats.TcpBytesIn) / dt;
+                        let tcpOutRate = (data.TcpBytesOut - lastStats.TcpBytesOut) / dt;
+                        let udpInRate = (data.UdpBytesIn - lastStats.UdpBytesIn) / dt;
+                        let udpOutRate = (data.UdpBytesOut - lastStats.UdpBytesOut) / dt;
+                        let dnsRate = (data.DnsQueries - lastStats.DnsQueries) / dt;
+
+                        // Handle server restarts (counters reset to 0)
+                        if (tcpInRate < 0) tcpInRate = 0;
+                        if (tcpOutRate < 0) tcpOutRate = 0;
+                        if (udpInRate < 0) udpInRate = 0;
+                        if (udpOutRate < 0) udpOutRate = 0;
+                        if (dnsRate < 0) dnsRate = 0;
 
                         // Update Rate Labels
                         document.getElementById('rate-in').textContent = formatBytes(tcpInRate + udpInRate) + '/s';
@@ -403,6 +433,7 @@ const statusTemplateHTML = `
                         document.getElementById('tcp-rate-out').textContent = formatBytes(tcpOutRate) + '/s';
                         document.getElementById('udp-rate-in').textContent = formatBytes(udpInRate) + '/s';
                         document.getElementById('udp-rate-out').textContent = formatBytes(udpOutRate) + '/s';
+                        document.getElementById('dns-rate').textContent = dnsRate.toFixed(1) + '/s';
 
                         // Update Chart Data (Convert to KB/s for chart y-axis readability)
                         const datasets = trafficChart.data.datasets;
@@ -414,6 +445,8 @@ const statusTemplateHTML = `
                         datasets[2].data.shift();
                         datasets[3].data.push(udpOutRate / 1024);
                         datasets[3].data.shift();
+                        datasets[4].data.push(dnsRate);
+                        datasets[4].data.shift();
                         
                         trafficChart.update('none'); // 'none' mode for performance
                     }
@@ -451,4 +484,10 @@ func StatusHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error executing status template: %v", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
+}
+
+func JsonStatusHandler(w http.ResponseWriter, r *http.Request) {
+	status := stats.GetStatus()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
 }

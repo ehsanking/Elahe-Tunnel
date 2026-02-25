@@ -27,6 +27,6 @@ func handlePingRequest(key []byte) http.HandlerFunc {
 			return
 		}
 
-		masquerade.WrapInRandomHttpResponse(w, encryptedPong)
+		masquerade.WrapInRandomHttpResponse(encryptedPong).Write(w)
 	}
 }
