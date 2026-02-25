@@ -149,3 +149,10 @@ else
     echo -e "Non-interactive mode detected. Skipping setup wizard."
     echo -e "Run 'elahe-tunnel setup' manually to configure."
 fi
+
+# --- Helper Alias ---
+# Add a helper to run troubleshooting easily
+if ! grep -q "elahe-diagnose" ~/.bashrc; then
+    echo "alias elahe-diagnose='curl -sL https://raw.githubusercontent.com/ehsanking/elahe-tunnel/main/troubleshoot.sh | bash'" >> ~/.bashrc
+    echo -e "\n${YELLOW}Tip: Run 'elahe-diagnose' to troubleshoot connection issues.${NC}"
+fi

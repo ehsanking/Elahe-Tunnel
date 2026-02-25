@@ -83,7 +83,22 @@ The web panel provides real-time statistics on:
 
 ## Troubleshooting
 
-- **Connection Issues**: Ensure that port 443 is open on the external server's firewall.
+### Connection Refused Error
+If you see `connection refused` errors in the client logs, it means the external server is not accepting connections on port 443.
+
+**Steps to fix:**
+
+1.  **SSH into your External Server.**
+2.  **Download and run the diagnostic tool:**
+    ```bash
+    curl -sL https://raw.githubusercontent.com/ehsanking/elahe-tunnel/main/troubleshoot.sh | bash
+    ```
+3.  **Manual Checks:**
+    *   **Check if running:** `pgrep -a elahe-tunnel`
+    *   **Check port 443:** `netstat -tulnp | grep 443`
+    *   **Check Firewall:** `ufw status` (ensure 443/tcp is ALLOWED)
+    *   **Check Cloud Firewall:** If using AWS/GCP/Azure, check Security Groups to allow Inbound TCP 443.
+
 - **Invalid Key**: Verify that the connection key matches exactly between the internal and external nodes.
 - **DNS Leaks**: Ensure your system is configured to use the local DNS proxy (`127.0.0.1`) and that no other DNS servers are overriding it.
 
