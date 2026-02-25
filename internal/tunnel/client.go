@@ -518,7 +518,7 @@ func handleProxyRequest(listenKey, forwardKey []byte, cfg *config.Config, httpCl
 // and attempting to reconnect with exponential backoff if it fails.
 func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte, port int) {
 	const (
-		pingInterval  = 1 * time.Minute
+		pingInterval  = 30 * time.Second
 		maxRetries    = 10
 		baseBackoff   = 2 * time.Second
 		maxBackoff    = 5 * time.Minute
@@ -605,24 +605,35 @@ func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteI
 	defer localConn.Close()
 
 	buf := make([]byte, 32*1024)
+	lastRequestTime := time.Now()
 
 	for {
 		// Read data from local application with a short timeout to allow polling
-		localConn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+		localConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		n, err := localConn.Read(buf)
+		
+		isIdle := false
 		if err != nil {
 			if err == io.EOF {
 				return // Connection closed by local app
 			}
 			// Check for timeout
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// Timeout means no data to send, but we might need to receive
+				// Timeout means no data to send
 				n = 0
+				isIdle = true
 			} else {
 				fmt.Printf("Error reading from local connection: %v\n", err)
 				return
 			}
 		}
+
+		// If idle, only send a keep-alive request every 5 seconds
+		if isIdle && time.Since(lastRequestTime) < 5*time.Second {
+			continue
+		}
+
+		lastRequestTime = time.Now()
 
 		// Construct payload: SessionID|Destination|Payload
 		var payload []byte

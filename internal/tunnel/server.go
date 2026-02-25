@@ -175,6 +175,8 @@ var (
 	sessionMap  sync.Map
 	// Mutex to ensure we don't dial multiple times for the same session concurrently
 	sessionLocks sync.Map
+	// Last activity time for each session
+	sessionActivity sync.Map
 )
 
 func handleTunnelRequest(key []byte) http.HandlerFunc {
@@ -242,21 +244,36 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 				sessionMap.Store(sessionID, targetConn)
 				mu.Unlock()
 				
-				// Start a cleanup routine for this session
+				// Start a cleanup routine for this session with idle timeout
 				go func(sid string, c net.Conn) {
-					// In a real implementation, we'd track activity and close after idle timeout.
-					// For now, we rely on the client to close or the connection to break.
-					// But we need to remove it from the map eventually.
-					// Let's just wait until it's closed (which happens on error).
-					// But we don't know when it's closed unless we try to read/write.
-					// So we should probably have an idle timer.
-					time.Sleep(5 * time.Minute) // Hard timeout for now
-					c.Close()
-					sessionMap.Delete(sid)
-					sessionLocks.Delete(sid)
+					ticker := time.NewTicker(1 * time.Minute)
+					defer ticker.Stop()
+					
+					for {
+						select {
+						case <-ticker.C:
+							// Check if session is still in map (might have been deleted on error)
+							if _, ok := sessionMap.Load(sid); !ok {
+								return
+							}
+							
+							// If idle for more than 10 minutes, close it
+							last, ok := sessionActivity.Load(sid)
+							if !ok || time.Now().Unix()-last.(int64) > 600 {
+								c.Close()
+								sessionMap.Delete(sid)
+								sessionLocks.Delete(sid)
+								sessionActivity.Delete(sid)
+								return
+							}
+						}
+					}
 				}(sessionID, targetConn)
 			}
 		}
+
+		// Update activity time
+		sessionActivity.Store(sessionID, time.Now().Unix())
 
 		// Write payload to target
 		if len(payload) > 0 {
@@ -272,8 +289,12 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 		}
 
 		// Read response from target
-		// We can't wait for EOF. We read what's available now.
-		targetConn.SetReadDeadline(time.Now().Add(2 * time.Second)) // Short timeout to return data quickly
+		// If payload was empty, this is a polling request, so we can wait longer
+		readTimeout := 2 * time.Second
+		if len(payload) == 0 {
+			readTimeout = 10 * time.Second
+		}
+		targetConn.SetReadDeadline(time.Now().Add(readTimeout))
 		
 		// Use a buffer from a pool ideally, but for now 32KB is fine
 		readBuf := make([]byte, 32*1024) 
