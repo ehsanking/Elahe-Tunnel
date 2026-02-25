@@ -7,6 +7,7 @@
   <p>
     <a href="https://golang.org/"><img src="https://img.shields.io/badge/Made%20with-Go-00ADD8?style=for-the-badge&logo=go" alt="Made with Go"></a>
     <a href="/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License"></a>
+    <a href="/VERSION"><img src="https://img.shields.io/badge/Version-v1.0.0-orange?style=for-the-badge" alt="Version"></a>
     <a href="#"><img src="https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge" alt="Platform"></a>
     <a href="#"><img src="https://img.shields.io/badge/Status-Active-success?style=for-the-badge" alt="Status"></a>
   </p>
@@ -98,6 +99,14 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`)
 4.  Push to the branch (`git push origin feature/AmazingFeature`)
 5.  Open a Pull Request
+
+## ⚠️ Disclaimer
+
+This tool is intended for educational and research purposes only, specifically to demonstrate how censorship circumvention and traffic obfuscation techniques work. The developers of this project are not responsible for any misuse of this software.
+
+By using this software, you agree to comply with all applicable local, national, and international laws and regulations. You are solely responsible for ensuring that your use of this tool does not violate any laws or terms of service of any network or service provider.
+
+This software is provided "as is", without warranty of any kind, express or implied.
 
 ## 📜 License
 
