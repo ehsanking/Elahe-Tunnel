@@ -69,12 +69,19 @@ elahe-tunnel setup
 ```
 
 ### 2. Run
-Start the tunnel service.
+Start the tunnel service in the background.
 ```bash
 elahe-tunnel run
 ```
 
-### 3. Monitor
+### 3. Manage
+Check status or stop the background service.
+```bash
+elahe-tunnel status
+elahe-tunnel stop
+```
+
+### 4. Monitor
 Access the web dashboard at `http://YOUR_IP:8080` (default port) to view real-time statistics.
 Login with the credentials set during setup.
 
