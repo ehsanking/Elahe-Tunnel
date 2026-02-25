@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://images.unsplash.com/photo-1558494949-efc52728101c?q=80&w=2000&auto=format&fit=crop" alt="Elahe Tunnel Header" width="100%" style="border-radius: 10px; max-height: 300px; object-fit: cover;">
+  <img src="https://images.unsplash.com/photo-1564656090805-7f22337a8445?q=80&w=2000&auto=format&fit=crop" alt="Elahe Tunnel Header" width="100%" style="border-radius: 10px; max-height: 300px; object-fit: cover;">
 
   <h1 style="margin-top: 20px;">Elahe Tunnel</h1>
   <p><strong>Next-Gen Censorship Circumvention & Traffic Obfuscation</strong></p>
@@ -42,10 +42,10 @@ The system operates on a client-server model:
 ```mermaid
 graph LR
     User[User Device] -->|TCP/UDP| Client[Internal Node]
-    Client -->|Fake Google Search (Encrypted)| Server[External Node]
+    Client -->|"Fake Google Search (Encrypted)"| Server[External Node]
     Server -->|Real Traffic| Internet[Internet]
     Internet -->|Response| Server
-    Server -->|Fake Search Result (Encrypted)| Client
+    Server -->|"Fake Search Result (Encrypted)"| Client
     Client -->|Decrypted Data| User
 ```
 
