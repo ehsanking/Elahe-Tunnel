@@ -16,9 +16,32 @@ var setupCmd = &cobra.Command{
 	Use:   "setup [internal | external]",
 	Short: "Initial setup for the Elahe Tunnel.",
 	Long:  `Use 'setup' to configure the current machine as either an internal (relay) node inside a censored network or an external (exit) node with free internet access.`,
-	Args:  cobra.ExactArgs(1),
+	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		setupType := args[0]
+		var setupType string
+		if len(args) > 0 {
+			setupType = args[0]
+		} else {
+			// Interactive mode
+			reader := bufio.NewReader(os.Stdin)
+			fmt.Println("Please choose the node type:")
+			fmt.Println("1. Internal (Relay Node - Inside Censored Network)")
+			fmt.Println("2. External (Exit Node - Free Internet Access)")
+			fmt.Print("Enter choice (1/2 or internal/external): ")
+			input, _ := reader.ReadString('\n')
+			input = strings.TrimSpace(strings.ToLower(input))
+
+			switch input {
+			case "1", "internal":
+				setupType = "internal"
+			case "2", "external":
+				setupType = "external"
+			default:
+				fmt.Printf("Error: Invalid choice '%s'. Please use '1' (internal) or '2' (external).\n", input)
+				os.Exit(1)
+			}
+		}
+
 		switch setupType {
 		case "internal":
 			setupInternal()

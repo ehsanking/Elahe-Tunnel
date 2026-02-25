@@ -2,7 +2,6 @@ package tunnel
 
 import (
 	"bytes"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -52,11 +51,8 @@ func runDtlsServer(key []byte) {
 		logger.Error.Fatalf("Failed to resolve UDP address: %v", err)
 	}
 
-	cert, err := tls.LoadX509KeyPair("cert.pem", "key.pem")
-	if err != nil {
-		logger.Error.Fatalf("Failed to load TLS cert for DTLS: %v", err)
-	}
-
+	// DTLS with PSK does not require certificates.
+	// Providing certificates with PSK-only cipher suites causes an error.
 	dtlsListener, err := dtls.Listen("udp", udpAddr, &dtls.Config{
 		PSK: func(hint []byte) ([]byte, error) {
 			return key, nil
@@ -66,8 +62,6 @@ func runDtlsServer(key []byte) {
 			dtls.TLS_PSK_WITH_AES_128_GCM_SHA256,
 			dtls.TLS_PSK_WITH_AES_128_CCM_8,
 		},
-		Certificates:         []tls.Certificate{cert},
-		InsecureSkipVerify:   true, // Not needed for server, but good practice
 		ExtendedMasterSecret: dtls.RequireExtendedMasterSecret,
 	})
 	if err != nil {
