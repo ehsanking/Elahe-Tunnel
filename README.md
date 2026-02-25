@@ -1,75 +1,109 @@
-![Elahe Tunnel Header](https://picsum.photos/seed/elahe/1200/400?grayscale&blur=2)
+<div align="center">
+  <img src="https://images.unsplash.com/photo-1558494949-efc52728101c?q=80&w=2000&auto=format&fit=crop" alt="Elahe Tunnel Header" width="100%" style="border-radius: 10px; max-height: 300px; object-fit: cover;">
 
-# Elahe Tunnel
+  <h1 style="margin-top: 20px;">Elahe Tunnel</h1>
+  <p><strong>Next-Gen Censorship Circumvention & Traffic Obfuscation</strong></p>
 
-> A censorship circumvention tool that disguises network traffic as Google search packets.
+  <p>
+    <a href="https://golang.org/"><img src="https://img.shields.io/badge/Made%20with-Go-00ADD8?style=for-the-badge&logo=go" alt="Made with Go"></a>
+    <a href="/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License"></a>
+    <a href="#"><img src="https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge" alt="Platform"></a>
+    <a href="#"><img src="https://img.shields.io/badge/Status-Active-success?style=for-the-badge" alt="Status"></a>
+  </p>
+</div>
 
-[![Go Version](https://img.shields.io/badge/go-1.24+-blue.svg)](https://golang.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-0.0.1-orange.svg)](/VERSION)
+---
 
-**Elahe Tunnel** is an experimental tool designed to bypass sophisticated Deep Packet Inspection (DPI) systems by camouflaging data packets to look like legitimate Google search queries and results. It's built for scenarios where internet access is heavily restricted or monitored.
+## 🚀 Overview
 
-## 💡 How It Works
+**Elahe Tunnel** is an advanced, high-performance tunneling tool engineered to bypass sophisticated Deep Packet Inspection (DPI) systems. By camouflaging data packets to mimic legitimate Google Search queries and results, it renders traffic indistinguishable from normal web browsing.
 
-The core idea is to create a tunnel between two servers: an **internal node** (inside the censored network, e.g., Iran) and an **external node** (with unrestricted internet access, e.g., Germany).
+Designed for resilience in restrictive network environments, it provides a secure, encrypted bridge between an internal node (e.g., inside a censored region) and an external node (with unrestricted internet access).
 
-1.  **External Node (Exit Point):** This server waits for incoming connections. When it receives a packet that looks like a Google search, it extracts the hidden data, forwards it to the public internet, gets the response, and then wraps that response inside a fake Google search results HTML page to send back.
+## ✨ Key Features
 
-2.  **Internal Node (Relay):** This server takes TCP traffic from a local user, encrypts it, and wraps it into a packet that mimics a Google search query. It then sends this to the external node.
+*   **🕵️ Advanced Obfuscation:** Encapsulates traffic within HTTP GET/POST requests that perfectly mimic Google Search patterns, fooling heuristic analysis.
+*   **🔒 Military-Grade Encryption:** All data is secured with **AES-256-GCM** encryption, ensuring confidentiality and integrity.
+*   **⚡ High Performance:** Built with Go for superior concurrency, low latency, and minimal resource footprint.
+*   **📊 Real-Time Web Dashboard:** Monitor traffic, active connections, and system health via a modern, responsive web interface.
+*   **🌐 Multi-Protocol Support:**
+    *   **TCP:** Robust tunneling for standard web traffic.
+    *   **UDP (DTLS):** Secure, low-latency transport for voice/video calls and gaming.
+    *   **DNS:** Encrypted DNS proxy to prevent DNS poisoning and leakage.
+*   **🛠️ Easy Deployment:** Single-command installation and interactive setup wizard.
 
-This masquerading technique aims to make the traffic pattern indistinguishable from regular web browsing, thus evading detection by automated censorship systems.
+## 🛠️ Architecture
 
-## 🚀 Getting Started
+The system operates on a client-server model:
 
-### Installation
+1.  **Internal Node (Client):** Located within the restricted network. It accepts local traffic, encrypts it, wraps it in a fake Google Search query, and sends it to the external node.
+2.  **External Node (Server):** Located in an unrestricted network. It receives the "search query," unwraps and decrypts the payload, forwards it to the destination, and returns the response wrapped in a fake Google Search results page.
 
-You can install and configure Elahe Tunnel with a single command. This script automatically handles dependencies, Go installation, and setup.
+```mermaid
+graph LR
+    User[User Device] -->|TCP/UDP| Client[Internal Node]
+    Client -->|Fake Google Search (Encrypted)| Server[External Node]
+    Server -->|Real Traffic| Internet[Internet]
+    Internet -->|Response| Server
+    Server -->|Fake Search Result (Encrypted)| Client
+    Client -->|Decrypted Data| User
+```
+
+## 📦 Installation
+
+Install and configure Elahe Tunnel with a single command. This script handles dependencies (Go) and setup automatically.
 
 ```bash
 bash <(curl -s -L https://raw.githubusercontent.com/ehsanking/elahe-tunnel/main/install.sh)
 ```
 
-The script will:
-1.  Check and install necessary dependencies (Go, unzip, curl).
-2.  Download the latest source code.
-3.  Compile the application.
-4.  Launch the interactive setup wizard.
+## 🚦 Usage
 
-### Usage
+Once installed, manage the tunnel using the `elahe-tunnel` CLI:
 
-After installation, you can manage the tunnel using the `elahe-tunnel` command:
-
-*   **Run the tunnel:** `elahe-tunnel run`
-*   **Re-configure:** `elahe-tunnel setup`
-*   **Check status:** `elahe-tunnel status`
-
-#### Step 3: Check the Tunnel Status
-
-You can check the status of the connection at any time on either server.
-
+### 1. Setup
+Configure your node as either **Internal** (Client) or **External** (Server).
 ```bash
-elahe-tunnel status
+elahe-tunnel setup
 ```
 
-**Example Output:**
-```
-Checking tunnel status...
-Status: Active
+### 2. Run
+Start the tunnel service.
+```bash
+elahe-tunnel run
 ```
 
-## Commands
+### 3. Monitor
+Access the web dashboard at `http://YOUR_IP:8080` (default port) to view real-time statistics.
+Login with the credentials set during setup.
 
-- `elahe-tunnel setup [internal | external]`: Configure the server node.
-- `elahe-tunnel status`: Check the tunnel's connection status.
-- `elahe-tunnel version`: Show the current version of the tool.
+## 🔧 Configuration
+
+Configuration is stored in `search_tunnel_config.json`. You can modify it manually or use the `setup` command.
+
+| Key | Description |
+| :--- | :--- |
+| `node_type` | `internal` or `external` |
+| `remote_host` | IP/Domain of the external server |
+| `connection_key` | Base64 encoded AES-256 key (must match on both nodes) |
+| `web_panel_enabled` | Enable/Disable the web dashboard |
+| `web_panel_port` | Port for the web dashboard |
 
 ## 🤝 Contributing
 
-This project is in its early stages (v0.0.1), and contributions are highly welcome. Feel free to open an issue to report bugs, suggest features, or submit a pull request.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-Special thanks to **EhsanKing** for the original idea and technical analysis.
+1.  Fork the repository
+2.  Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4.  Push to the branch (`git push origin feature/AmazingFeature`)
+5.  Open a Pull Request
 
 ## 📜 License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+Distributed under the MIT License. See `LICENSE` for more information.
+
+---
+<div align="center">
+  <sub>Built with ❤️ for internet freedom.</sub>
+</div>
