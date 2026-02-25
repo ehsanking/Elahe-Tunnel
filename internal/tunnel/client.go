@@ -17,6 +17,7 @@ import (
 	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
 	"github.com/ehsanking/elahe-tunnel/internal/stats"
 	"github.com/ehsanking/elahe-tunnel/internal/web"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"sync/atomic"
@@ -561,61 +562,95 @@ func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteI
 	defer stats.RemoveTcpActiveConnection()
 	defer localConn.Close()
 
-	// Read data from the local application
-	buf := make([]byte, 8192)
-	n, err := localConn.Read(buf)
-	stats.AddTcpBytesIn(uint64(n))
+	// Generate Session ID
+	sidBytes, err := crypto.GenerateKey()
 	if err != nil {
-		if err != io.EOF {
-			fmt.Printf("Error reading from local connection: %v\n", err)
+		fmt.Printf("Failed to generate session ID: %v\n", err)
+		return
+	}
+	sessionID := hex.EncodeToString(sidBytes[:8])
+
+	buf := make([]byte, 32*1024)
+
+	for {
+		// Read data from local application with a short timeout to allow polling
+		localConn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+		n, err := localConn.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				return // Connection closed by local app
+			}
+			// Check for timeout
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				// Timeout means no data to send, but we might need to receive
+				n = 0
+			} else {
+				fmt.Printf("Error reading from local connection: %v\n", err)
+				return
+			}
 		}
-		return
-	}
 
-	// Prepend the destination and encrypt the data
-	payload := append([]byte(cfg.DestinationHost+"\n"), buf[:n]...)
-	encrypted, err := crypto.Encrypt(payload, key)
-	if err != nil {
-		fmt.Printf("Encryption error: %v\n", err)
-		return
-	}
+		// Construct payload: SessionID|Destination|Payload
+		var payload []byte
+		prefix := []byte(sessionID + "|" + cfg.DestinationHost + "|")
+		if n > 0 {
+			payload = append(prefix, buf[:n]...)
+			stats.AddTcpBytesIn(uint64(n))
+		} else {
+			payload = prefix
+		}
 
-	// The host in the request must match the CN of the certificate (www.google.com)
-	// but the request itself goes to the user's server IP.
-	req, err := masquerade.WrapInHttpRequest(encrypted, "www.google.com")
-	if err != nil {
-		fmt.Printf("Failed to wrap HTTP request: %v\n", err)
-		return
-	}
-	// Override the request URL to point to the actual server IP
-	req.URL.Scheme = "https"
-	req.URL.Host = remoteIP
+		encrypted, err := crypto.Encrypt(payload, key)
+		if err != nil {
+			fmt.Printf("Encryption error: %v\n", err)
+			return
+		}
 
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		fmt.Printf("Failed to send HTTP request: %v\n", err)
-		return
-	}
-	defer resp.Body.Close()
+		// The host in the request must match the CN of the certificate (www.google.com)
+		// but the request itself goes to the user's server IP.
+		req, err := masquerade.WrapInHttpRequest(encrypted, "www.google.com")
+		if err != nil {
+			fmt.Printf("Failed to wrap HTTP request: %v\n", err)
+			return
+		}
+		// Override the request URL to point to the actual server IP
+		req.URL.Scheme = "https"
+		req.URL.Host = remoteIP
 
-	// Unwrap the response
-	respData, err := masquerade.UnwrapFromHttpResponse(resp)
-	if err != nil {
-		fmt.Printf("Failed to unwrap HTTP response: %v\n", err)
-		return
-	}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			fmt.Printf("Failed to send HTTP request: %v\n", err)
+			return
+		}
+		
+		// Unwrap the response
+		respData, err := masquerade.UnwrapFromHttpResponse(resp)
+		resp.Body.Close() // Close immediately
+		if err != nil {
+			fmt.Printf("Failed to unwrap HTTP response: %v\n", err)
+			return
+		}
 
-	// Decrypt the response data
-	decrypted, err := crypto.Decrypt(respData, key)
-	if err != nil {
-		fmt.Printf("Decryption error: %v\n", err)
-		return
-	}
+		// Decrypt the response data
+		decrypted, err := crypto.Decrypt(respData, key)
+		if err != nil {
+			fmt.Printf("Decryption error: %v\n", err)
+			return
+		}
 
-	// Write the final data back to the local application
-	bytesWritten, err := localConn.Write(decrypted)
-	stats.AddTcpBytesOut(uint64(bytesWritten))
-	if err != nil {
-		fmt.Printf("Error writing to local connection: %v\n", err)
+		// Write the final data back to the local application
+		if len(decrypted) > 0 {
+			bytesWritten, err := localConn.Write(decrypted)
+			stats.AddTcpBytesOut(uint64(bytesWritten))
+			if err != nil {
+				fmt.Printf("Error writing to local connection: %v\n", err)
+				return
+			}
+		} else {
+			// No data received. If we also sent no data, sleep a bit to avoid busy loop.
+			if n == 0 {
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
 	}
 }
