@@ -537,15 +537,27 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 			time.Sleep(baseBackoff)
 			continue
 		}
-		req, _ := masquerade.WrapInHttpRequest(pingData, targetHost) // Masquerade with the original hostname and port
-		req.URL.Scheme = "https"
-		req.URL.Host = targetIP // Connect to the resolved IP and port
-		req.URL.Path = "/favicon.ico"
 
 		for i := 0; i < maxRetries; i++ {
+			// Recreate request inside the loop to avoid "Body length 0" errors on retries
+			req, _ := masquerade.WrapInHttpRequest(pingData, targetHost)
+			req.URL.Scheme = "https"
+			req.URL.Host = targetIP
+			req.URL.Path = "/favicon.ico"
+
 			var resp *http.Response
 			resp, err = httpClient.Do(req)
 			if err == nil {
+				if resp.StatusCode != http.StatusOK {
+					err = fmt.Errorf("server returned status %d", resp.StatusCode)
+					resp.Body.Close()
+					
+					if resp.StatusCode == http.StatusTooManyRequests {
+						time.Sleep(5 * time.Second) // Wait longer if rate limited
+					}
+					continue
+				}
+
 				var encryptedPong []byte
 				encryptedPong, err = masquerade.UnwrapFromHttpResponse(resp)
 				resp.Body.Close()

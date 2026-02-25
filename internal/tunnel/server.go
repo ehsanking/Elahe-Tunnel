@@ -31,13 +31,14 @@ func RunServer(cfg *config.Config) error {
 		port = 443
 	}
 
-	limiter := rate.NewLimiter(rate.Limit(10), 50) // Allow 10 requests per second, with a burst of 50
+	// Increase rate limits for better stability under unstable network conditions
+	limiter := rate.NewLimiter(rate.Limit(100), 500) // Allow 100 requests per second, with a burst of 500
 
 	pingHandler := http.HandlerFunc(handlePingRequest(key))
-	http.Handle("/favicon.ico", limitMiddleware(limiter, pingHandler))
+	http.Handle("/favicon.ico", recoveryMiddleware(limitMiddleware(limiter, pingHandler)))
 
 	tunnelHandler := http.HandlerFunc(handleTunnelRequest(key))
-	http.Handle("/", limitMiddleware(limiter, tunnelHandler))
+	http.Handle("/", recoveryMiddleware(limitMiddleware(limiter, tunnelHandler)))
 
 	// Start the DTLS server in a separate goroutine.
 	go runDtlsServer(key, port)
@@ -49,6 +50,18 @@ func RunServer(cfg *config.Config) error {
 		return fmt.Errorf("server failed: %w. Check if port %d is free and you have root privileges", err, port)
 	}
 	return nil
+}
+
+func recoveryMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				logger.Error.Printf("Panic recovered: %v", err)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 func limitMiddleware(limiter *rate.Limiter, next http.Handler) http.Handler {
