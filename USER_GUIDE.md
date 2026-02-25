@@ -92,6 +92,25 @@ The web panel provides real-time statistics on:
 - TCP and UDP Traffic Rates
 - DNS Queries and Error Rates
 
+## Integration with X-UI / Xray / V2Ray
+
+If you want to use Elahe Tunnel to protect your Xray/V2Ray traffic, follow this architecture to avoid port conflicts:
+
+### 1. External Server (Outside)
+- **X-UI/Xray**: Set your inbound port to something other than 443 (e.g., `8081`).
+- **Elahe Tunnel**: Run as **External** on port **443**.
+
+### 2. Internal Server (Iran)
+- **Elahe Tunnel**: Run as **Internal**.
+- **Remote Host**: Your External Server IP.
+- **Tunnel Port**: `443`.
+- **Destination Host**: `127.0.0.1:8081` (This points to the Xray port on the external server).
+- **Local Port**: `443` (The port you will connect to from your phone/PC).
+
+### 3. Client Connection
+In your VPN app (v2rayNG, Shadowrocket, etc.), use the **Internal Server IP** and port **443**. Your traffic will now be:
+`Client` -> `Iran Server:443` -> `(Encrypted Tunnel)` -> `External Server:443` -> `Xray:8081`
+
 ## Troubleshooting
 
 ### Connection Refused Error
