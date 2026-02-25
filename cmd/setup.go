@@ -233,6 +233,21 @@ func setupInternal() {
 		}
 	}
 
+	fmt.Print("Enter Local Port to listen on (e.g., 8080): ")
+	localPortStr, _ := reader.ReadString('\n')
+	localPortStr = strings.TrimSpace(localPortStr)
+	if localPortStr != "" {
+		p, _ := strconv.Atoi(localPortStr)
+		cfg.LocalPort = p
+	}
+
+	fmt.Print("Enter Remote Destination (e.g., 127.0.0.1:80): ")
+	destStr, _ := reader.ReadString('\n')
+	destStr = strings.TrimSpace(destStr)
+	if destStr != "" {
+		cfg.DestinationHost = destStr
+	}
+
 	if err := config.SaveConfig(cfg); err != nil {
 		fmt.Println("Error saving configuration:", err)
 		os.Exit(1)

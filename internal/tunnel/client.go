@@ -95,21 +95,31 @@ func RunClient(cfg *config.Config) error {
 		go RunUdpProxy(9091, httpClient, cfg.RemoteHost, remoteIP, key, cfg)
 	}
 
-	fmt.Println("Internal TCP proxy listening on 127.0.0.1:9090")
-	localListener, err := net.Listen("tcp", "127.0.0.1:9090")
-	if err != nil {
-		return fmt.Errorf("failed to listen on local port 9090: %w", err)
-	}
-	defer localListener.Close()
+	// Start Tunnel Listener
+	if cfg.LocalPort > 0 {
+		go func() {
+			addr := fmt.Sprintf("0.0.0.0:%d", cfg.LocalPort)
+			fmt.Printf("Internal tunnel listening on %s -> %s\n", addr, cfg.DestinationHost)
+			localListener, err := net.Listen("tcp", addr)
+			if err != nil {
+				fmt.Printf("Failed to listen on local port %d: %v\n", cfg.LocalPort, err)
+				return
+			}
+			defer localListener.Close()
 
-	for {
-		localConn, err := localListener.Accept()
-		if err != nil {
-			fmt.Printf("Failed to accept local connection: %v\n", err)
-			continue
-		}
-		go handleClientConnection(localConn, httpClient, remoteIP, key, cfg)
+			for {
+				localConn, err := localListener.Accept()
+				if err != nil {
+					fmt.Printf("Failed to accept local connection: %v\n", err)
+					continue
+				}
+				go handleClientConnection(localConn, httpClient, remoteIP, key, cfg, cfg.DestinationHost)
+			}
+		}()
 	}
+
+	// Block main goroutine
+	select {}
 }
 
 const socketPath = "/tmp/elahe-tunnel.sock"
@@ -565,16 +575,7 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 	}
 }
 
-func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteIP string, key []byte, cfg *config.Config) {
-	// 1. Perform SOCKS5 handshake to get dynamic destination
-	target, err := HandleSocks5(localConn)
-	if err != nil {
-		// Fallback to default destination if SOCKS5 fails (might be a simple TCP client)
-		// Or just log and return if we want to enforce SOCKS5
-		fmt.Printf("SOCKS5 handshake failed: %v. Falling back to default destination: %s\n", err, cfg.DestinationHost)
-		target = cfg.DestinationHost
-	}
-
+func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteIP string, key []byte, cfg *config.Config, target string) {
 	// Generate Session ID
 	sidBytes, err := crypto.GenerateKey()
 	if err != nil {
