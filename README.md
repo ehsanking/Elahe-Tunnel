@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://images.unsplash.com/photo-1564656090805-7f22337a8445?q=80&w=2000&auto=format&fit=crop" alt="Elahe Tunnel Header" width="100%" style="border-radius: 10px; max-height: 300px; object-fit: cover;">
+  <img src="./resources/images/header.svg" alt="Elahe Tunnel Header" width="100%" style="border-radius: 10px; max-height: 300px; object-fit: cover;">
 
   <h1 style="margin-top: 20px;">Elahe Tunnel</h1>
   <p><strong>Next-Gen Censorship Circumvention & Traffic Obfuscation</strong></p>
