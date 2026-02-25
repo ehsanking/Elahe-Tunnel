@@ -110,6 +110,10 @@ const statusTemplateHTML = `
             <i class="fa-solid fa-gear"></i>
             <span>Settings</span>
         </a>
+        <a href="/logout" class="nav-item">
+            <i class="fa-solid fa-sign-out-alt"></i>
+            <span>Logout</span>
+        </a>
     </div>
 
     <!-- Main Content -->
@@ -464,13 +468,6 @@ const statusTemplateHTML = `
 `
 
 func StatusHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Query().Get("json") == "true" {
-		status := stats.GetStatus()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(status)
-		return
-	}
-
 	t, err := template.New("status").Parse(statusTemplateHTML)
 	if err != nil {
 		log.Printf("Error parsing status template: %v", err)

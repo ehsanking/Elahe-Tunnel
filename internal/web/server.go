@@ -13,28 +13,19 @@ func StartServer(cfg *config.Config) {
 	}
 
 	mux := http.NewServeMux()
-		mux.HandleFunc("/", basicAuth(StatusHandler, cfg.WebPanelUser, cfg.WebPanelPass, "Elahe Tunnel Panel"))
-	mux.HandleFunc("/status", basicAuth(JsonStatusHandler, cfg.WebPanelUser, cfg.WebPanelPass, "Elahe Tunnel Panel"))
+	
+	// Public routes
+	mux.HandleFunc("/login", LoginHandler(cfg))
+	mux.HandleFunc("/logout", LogoutHandler)
+
+	// Protected routes
+	mux.HandleFunc("/", AuthMiddleware(StatusHandler))
+	mux.HandleFunc("/status", AuthMiddleware(JsonStatusHandler))
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.WebPanelPort)
 	fmt.Printf("Web panel starting on http://%s\n", addr)
 	err := http.ListenAndServe(addr, mux)
 	if err != nil {
 		fmt.Printf("Failed to start web panel: %v\n", err)
-	}
-}
-
-func basicAuth(handler http.HandlerFunc, username, password, realm string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		user, pass, ok := r.BasicAuth()
-
-		if !ok || user != username || pass != password {
-			w.Header().Set("WWW-Authenticate", `Basic realm="`+realm+`"`)
-			w.WriteHeader(401)
-			w.Write([]byte("Unauthorized.\n"))
-			return
-		}
-
-		handler(w, r)
 	}
 }

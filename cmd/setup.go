@@ -55,6 +55,21 @@ var setupCmd = &cobra.Command{
 }
 
 func setupExternal() {
+	// Check if config already exists
+	if _, err := os.Stat(config.ConfigFileName); err == nil {
+		fmt.Printf("\n⚠️  WARNING: A configuration file (%s) already exists!\n", config.ConfigFileName)
+		fmt.Println("Running setup again will OVERWRITE the existing configuration and GENERATE A NEW KEY.")
+		fmt.Println("Any clients using the old key will lose connection.")
+		fmt.Print("\nAre you sure you want to continue? (y/N): ")
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(strings.ToLower(input))
+		if input != "y" && input != "yes" {
+			fmt.Println("Setup aborted.")
+			os.Exit(0)
+		}
+	}
+
 	fmt.Println("Setting up as an external (foreign) server...")
 
 	// Generate connection key
@@ -100,6 +115,20 @@ func setupExternal() {
 }
 
 func setupInternal() {
+	// Check if config already exists
+	if _, err := os.Stat(config.ConfigFileName); err == nil {
+		fmt.Printf("\n⚠️  WARNING: A configuration file (%s) already exists!\n", config.ConfigFileName)
+		fmt.Println("Running setup again will OVERWRITE the existing configuration.")
+		fmt.Print("\nAre you sure you want to continue? (y/N): ")
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
+		input = strings.TrimSpace(strings.ToLower(input))
+		if input != "y" && input != "yes" {
+			fmt.Println("Setup aborted.")
+			os.Exit(0)
+		}
+	}
+
 	fmt.Println("Setting up as an internal (Iran) server...")
 
 	reader := bufio.NewReader(os.Stdin)

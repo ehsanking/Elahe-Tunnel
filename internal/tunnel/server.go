@@ -32,7 +32,11 @@ func RunServer(key []byte) error {
 	go runDtlsServer(key)
 
 	logger.Info.Println("External server listening on :443")
-	return http.ListenAndServeTLS(":443", "cert.pem", "key.pem", nil)
+	err := http.ListenAndServeTLS(":443", "cert.pem", "key.pem", nil)
+	if err != nil {
+		return fmt.Errorf("server failed: %w. Check if port 443 is free and you have root privileges", err)
+	}
+	return nil
 }
 
 func limitMiddleware(limiter *rate.Limiter, next http.Handler) http.Handler {

@@ -114,6 +114,12 @@ echo -e " ${GREEN}OK${NC}"
 
 # 6. Run Setup
 echo -e "\n${GREEN}✅ Installation Complete!${NC}"
-echo -e "Starting setup wizard...\n"
-sleep 1
-elahe-tunnel setup external
+
+if [ -t 0 ]; then
+    echo -e "Starting setup wizard...\n"
+    sleep 1
+    elahe-tunnel setup
+else
+    echo -e "Non-interactive mode detected. Skipping setup wizard."
+    echo -e "Run 'elahe-tunnel setup' manually to configure."
+fi
