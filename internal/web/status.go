@@ -16,7 +16,7 @@ const statusTemplateHTML = `
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Elahe Tunnel Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -31,59 +31,85 @@ const statusTemplateHTML = `
             --accent-danger: #ef4444;
             --accent-warning: #f59e0b;
             --accent-info: #06b6d4;
+            --accent-purple: #8b5cf6;
             --border-color: #334155;
             --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
             --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Inter', sans-serif; background-color: var(--bg-body); color: var(--text-primary); display: flex; min-height: 100vh; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: var(--bg-body); color: var(--text-primary); display: flex; min-height: 100vh; }
 
         /* Sidebar */
-        .sidebar { width: 260px; background-color: var(--bg-sidebar); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 24px; position: fixed; height: 100vh; overflow-y: auto; }
-        .logo { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); margin-bottom: 40px; display: flex; align-items: center; gap: 12px; }
-        .logo i { color: var(--accent-primary); }
-        .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--text-secondary); text-decoration: none; border-radius: 8px; transition: all 0.2s; margin-bottom: 4px; font-weight: 500; }
-        .nav-item:hover, .nav-item.active { background-color: rgba(59, 130, 246, 0.1); color: var(--accent-primary); }
-        .nav-item i { width: 20px; text-align: center; }
+        .sidebar { width: 260px; background-color: var(--bg-sidebar); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 24px; position: fixed; height: 100vh; overflow-y: auto; z-index: 50; }
+        .logo { font-size: 1.5rem; font-weight: 800; color: var(--text-primary); margin-bottom: 40px; display: flex; align-items: center; gap: 12px; letter-spacing: -0.5px; }
+        .logo i { color: var(--accent-primary); filter: drop-shadow(0 0 8px rgba(59, 130, 246, 0.5)); }
+        .nav-item { display: flex; align-items: center; gap: 12px; padding: 14px 16px; color: var(--text-secondary); text-decoration: none; border-radius: 12px; transition: all 0.2s ease; margin-bottom: 8px; font-weight: 600; font-size: 0.95rem; }
+        .nav-item:hover { background-color: rgba(255, 255, 255, 0.05); color: var(--text-primary); transform: translateX(4px); }
+        .nav-item.active { background-color: var(--accent-primary); color: white; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+        .nav-item i { width: 24px; text-align: center; font-size: 1.1rem; }
 
         /* Main Content */
-        .main-content { flex: 1; margin-left: 260px; padding: 32px; overflow-y: auto; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
-        .page-title { font-size: 1.8rem; font-weight: 600; }
-        .status-badge { padding: 6px 16px; border-radius: 9999px; font-size: 0.875rem; font-weight: 500; display: flex; align-items: center; gap: 8px; background-color: rgba(16, 185, 129, 0.1); color: var(--accent-success); border: 1px solid rgba(16, 185, 129, 0.2); }
+        .main-content { flex: 1; margin-left: 260px; padding: 40px; overflow-y: auto; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+        .page-title { font-size: 2rem; font-weight: 700; letter-spacing: -0.5px; }
+        .page-subtitle { color: var(--text-secondary); font-size: 0.9rem; margin-top: 4px; }
+        
+        .status-badge { padding: 8px 16px; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; display: flex; align-items: center; gap: 8px; background-color: rgba(16, 185, 129, 0.1); color: var(--accent-success); border: 1px solid rgba(16, 185, 129, 0.2); transition: all 0.3s ease; }
         .status-badge.disconnected { background-color: rgba(239, 68, 68, 0.1); color: var(--accent-danger); border-color: rgba(239, 68, 68, 0.2); }
-        .status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: currentColor; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background-color: currentColor; box-shadow: 0 0 8px currentColor; animation: pulse 2s infinite; }
 
-        /* Grid */
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; margin-bottom: 24px; }
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* Grid Layouts */
+        .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; margin-bottom: 24px; }
+        .grid-2-1 { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-bottom: 24px; }
         
         /* Cards */
-        .card { background-color: var(--bg-card); border-radius: 16px; padding: 24px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); }
-        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
-        .card-title { font-size: 0.875rem; color: var(--text-secondary); font-weight: 500; }
-        .card-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; }
-        .card-value { font-size: 1.8rem; font-weight: 700; margin-bottom: 4px; }
-        .card-subtext { font-size: 0.875rem; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
-        .trend-up { color: var(--accent-success); }
-        .trend-down { color: var(--accent-danger); }
+        .card { background-color: var(--bg-card); border-radius: 20px; padding: 24px; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); transition: transform 0.2s, box-shadow 0.2s; position: relative; overflow: hidden; }
+        .card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: rgba(255, 255, 255, 0.1); }
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+        .card-title { font-size: 0.95rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+        .card-icon { width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; transition: transform 0.3s ease; }
+        .card:hover .card-icon { transform: scale(1.1) rotate(5deg); }
+        
+        .card-value { font-size: 2rem; font-weight: 800; margin-bottom: 8px; letter-spacing: -1px; }
+        .card-subtext { font-size: 0.85rem; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; font-weight: 500; }
+        
+        .trend-up { color: var(--accent-success); display: flex; align-items: center; gap: 4px; }
+        .trend-down { color: var(--accent-danger); display: flex; align-items: center; gap: 4px; }
 
-        /* Chart Container */
-        .chart-container { position: relative; height: 300px; width: 100%; }
-        .full-width { grid-column: 1 / -1; }
+        /* Charts */
+        .chart-container { position: relative; height: 320px; width: 100%; }
+        .chart-container-sm { position: relative; height: 250px; width: 100%; display: flex; justify-content: center; }
 
         /* Tables */
         .table-container { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; padding: 16px; color: var(--text-secondary); font-weight: 500; border-bottom: 1px solid var(--border-color); font-size: 0.875rem; }
-        td { padding: 16px; border-bottom: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.9rem; }
+        table { width: 100%; border-collapse: separate; border-spacing: 0; }
+        th { text-align: left; padding: 16px 20px; color: var(--text-secondary); font-weight: 600; border-bottom: 1px solid var(--border-color); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        td { padding: 16px 20px; border-bottom: 1px solid var(--border-color); color: var(--text-primary); font-size: 0.95rem; font-weight: 500; }
         tr:last-child td { border-bottom: none; }
+        tr:hover td { background-color: rgba(255, 255, 255, 0.02); }
+
+        .proto-badge { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; }
+        .proto-tcp { background-color: rgba(59, 130, 246, 0.1); color: var(--accent-primary); }
+        .proto-udp { background-color: rgba(245, 158, 11, 0.1); color: var(--accent-warning); }
+        .proto-dns { background-color: rgba(6, 182, 212, 0.1); color: var(--accent-info); }
 
         /* Responsive */
+        @media (max-width: 1024px) {
+            .grid-2-1 { grid-template-columns: 1fr; }
+        }
         @media (max-width: 768px) {
             .sidebar { display: none; }
-            .main-content { margin-left: 0; padding: 16px; }
-            .grid { grid-template-columns: 1fr; }
+            .main-content { margin-left: 0; padding: 20px; }
+            .grid-4 { grid-template-columns: 1fr; }
+            .page-title { font-size: 1.5rem; }
         }
     </style>
 </head>
@@ -95,7 +121,7 @@ const statusTemplateHTML = `
             <span>Elahe Tunnel</span>
         </div>
         <a href="#" class="nav-item active">
-            <i class="fa-solid fa-chart-line"></i>
+            <i class="fa-solid fa-chart-pie"></i>
             <span>Dashboard</span>
         </a>
         <a href="/connections" class="nav-item">
@@ -110,7 +136,8 @@ const statusTemplateHTML = `
             <i class="fa-solid fa-gear"></i>
             <span>Settings</span>
         </a>
-        <a href="/logout" class="nav-item">
+        <div style="flex: 1"></div>
+        <a href="/logout" class="nav-item" style="color: var(--accent-danger);">
             <i class="fa-solid fa-sign-out-alt"></i>
             <span>Logout</span>
         </a>
@@ -119,108 +146,97 @@ const statusTemplateHTML = `
     <!-- Main Content -->
     <div class="main-content">
         <div class="header">
-            <div class="page-title">Dashboard</div>
+            <div>
+                <div class="page-title">Dashboard Overview</div>
+                <div class="page-subtitle">Real-time monitoring and statistics</div>
+            </div>
             <div id="connection-status" class="status-badge">
                 <div class="status-dot"></div>
                 <span>Connecting...</span>
             </div>
         </div>
 
-        <!-- Stats Grid -->
-        <div class="grid">
+        <!-- Key Metrics -->
+        <div class="grid-4">
             <!-- Active Connections -->
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title">Active TCP Connections</div>
+                    <div class="card-title">Active Sessions</div>
                     <div class="card-icon" style="background-color: rgba(59, 130, 246, 0.1); color: var(--accent-primary);">
-                        <i class="fa-solid fa-link"></i>
+                        <i class="fa-solid fa-users"></i>
                     </div>
                 </div>
                 <div class="card-value" id="tcp-active">0</div>
-                <div class="card-subtext">Current active sessions</div>
+                <div class="card-subtext">TCP Connections</div>
             </div>
 
-            <!-- Total Traffic In -->
+            <!-- Total Traffic -->
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title">Total Inbound</div>
+                    <div class="card-title">Total Traffic</div>
                     <div class="card-icon" style="background-color: rgba(16, 185, 129, 0.1); color: var(--accent-success);">
-                        <i class="fa-solid fa-arrow-down"></i>
+                        <i class="fa-solid fa-right-left"></i>
                     </div>
                 </div>
-                <div class="card-value" id="total-in">0 B</div>
+                <div class="card-value" id="total-traffic">0 B</div>
                 <div class="card-subtext">
-                    <span id="rate-in" class="trend-up">0 B/s</span>
-                    <span>current rate</span>
+                    <span id="total-rate" class="trend-up"><i class="fa-solid fa-bolt"></i> 0 B/s</span>
                 </div>
             </div>
 
-            <!-- Total Traffic Out -->
+            <!-- System Load -->
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title">Total Outbound</div>
-                    <div class="card-icon" style="background-color: rgba(245, 158, 11, 0.1); color: var(--accent-warning);">
-                        <i class="fa-solid fa-arrow-up"></i>
+                    <div class="card-title">System Load</div>
+                    <div class="card-icon" style="background-color: rgba(139, 92, 246, 0.1); color: var(--accent-purple);">
+                        <i class="fa-solid fa-server"></i>
                     </div>
                 </div>
-                <div class="card-value" id="total-out">0 B</div>
-                <div class="card-subtext">
-                    <span id="rate-out" class="trend-up">0 B/s</span>
-                    <span>current rate</span>
-                </div>
+                <div class="card-value" id="sys-goroutines">0</div>
+                <div class="card-subtext">Active Goroutines</div>
             </div>
 
-            <!-- Last Ping -->
+            <!-- Uptime/Ping -->
             <div class="card">
                 <div class="card-header">
-                    <div class="card-title">Last Heartbeat</div>
+                    <div class="card-title">Health Check</div>
                     <div class="card-icon" style="background-color: rgba(239, 68, 68, 0.1); color: var(--accent-danger);">
                         <i class="fa-solid fa-heart-pulse"></i>
                     </div>
                 </div>
-                <div class="card-value" id="last-ping">Never</div>
-                <div class="card-subtext">Seconds ago</div>
-            </div>
-            
-            <!-- System Memory -->
-            <div class="card">
-                <div class="card-header">
-                    <div class="card-title">System Memory</div>
-                    <div class="card-icon" style="background-color: rgba(139, 92, 246, 0.1); color: #8b5cf6;">
-                        <i class="fa-solid fa-memory"></i>
-                    </div>
-                </div>
-                <div class="card-value" id="sys-mem">0 B</div>
-                <div class="card-subtext">Allocated Heap</div>
-            </div>
-
-            <!-- Goroutines -->
-            <div class="card">
-                <div class="card-header">
-                    <div class="card-title">Goroutines</div>
-                    <div class="card-icon" style="background-color: rgba(236, 72, 153, 0.1); color: #ec4899;">
-                        <i class="fa-solid fa-microchip"></i>
-                    </div>
-                </div>
-                <div class="card-value" id="sys-goroutines">0</div>
-                <div class="card-subtext">Active Threads</div>
+                <div class="card-value" id="last-ping">--</div>
+                <div class="card-subtext">Last Heartbeat</div>
             </div>
         </div>
 
-        <!-- Charts -->
-        <div class="grid">
-            <div class="card full-width">
+        <!-- Charts Section -->
+        <div class="grid-2-1">
+            <!-- Traffic Chart -->
+            <div class="card">
                 <div class="card-header">
-                    <div class="card-title">Real-time Traffic Analysis</div>
+                    <div class="card-title">Traffic Analysis (In/Out)</div>
                 </div>
                 <div class="chart-container">
                     <canvas id="trafficChart"></canvas>
                 </div>
             </div>
+
+            <!-- Protocol Distribution -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">Protocol Distribution</div>
+                </div>
+                <div class="chart-container-sm">
+                    <canvas id="protocolChart"></canvas>
+                </div>
+                <div style="text-align: center; margin-top: 16px; color: var(--text-secondary); font-size: 0.9rem;">
+                    Based on total bytes transferred
+                </div>
+            </div>
         </div>
 
-        <!-- Detailed Stats -->
-        <div class="card full-width">
+        <!-- Detailed Stats Table -->
+        <div class="card">
             <div class="card-header">
                 <div class="card-title">Protocol Breakdown</div>
             </div>
@@ -229,33 +245,37 @@ const statusTemplateHTML = `
                     <thead>
                         <tr>
                             <th>Protocol</th>
-                            <th>Inbound Data</th>
-                            <th>Outbound Data</th>
+                            <th>Total Inbound</th>
+                            <th>Total Outbound</th>
                             <th>Current Rate (In)</th>
                             <th>Current Rate (Out)</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr>
-                            <td><i class="fa-solid fa-circle" style="color: var(--accent-primary); font-size: 8px; margin-right: 8px;"></i>TCP</td>
+                            <td><div class="proto-badge proto-tcp"><i class="fa-solid fa-circle" style="font-size: 8px;"></i> TCP</div></td>
                             <td id="tcp-in-table">0 B</td>
                             <td id="tcp-out-table">0 B</td>
-                            <td id="tcp-rate-in">0 B/s</td>
-                            <td id="tcp-rate-out">0 B/s</td>
+                            <td id="tcp-rate-in" style="color: var(--accent-success);">0 B/s</td>
+                            <td id="tcp-rate-out" style="color: var(--accent-warning);">0 B/s</td>
+                            <td><span style="color: var(--accent-success); font-size: 0.85rem;"><i class="fa-solid fa-check-circle"></i> Active</span></td>
                         </tr>
                         <tr>
-                            <td><i class="fa-solid fa-circle" style="color: var(--accent-warning); font-size: 8px; margin-right: 8px;"></i>UDP</td>
+                            <td><div class="proto-badge proto-udp"><i class="fa-solid fa-circle" style="font-size: 8px;"></i> UDP</div></td>
                             <td id="udp-in-table">0 B</td>
                             <td id="udp-out-table">0 B</td>
-                            <td id="udp-rate-in">0 B/s</td>
-                            <td id="udp-rate-out">0 B/s</td>
+                            <td id="udp-rate-in" style="color: var(--accent-success);">0 B/s</td>
+                            <td id="udp-rate-out" style="color: var(--accent-warning);">0 B/s</td>
+                            <td><span style="color: var(--accent-success); font-size: 0.85rem;"><i class="fa-solid fa-check-circle"></i> Active</span></td>
                         </tr>
                         <tr>
-                            <td><i class="fa-solid fa-circle" style="color: var(--accent-info); font-size: 8px; margin-right: 8px;"></i>DNS</td>
-                            <td id="dns-queries-table">0</td>
-                            <td id="dns-errors-table">0</td>
-                            <td id="dns-rate">0/s</td>
+                            <td><div class="proto-badge proto-dns"><i class="fa-solid fa-circle" style="font-size: 8px;"></i> DNS</div></td>
+                            <td id="dns-queries-table">0 Queries</td>
+                            <td id="dns-errors-table">0 Errors</td>
+                            <td id="dns-rate" style="color: var(--accent-info);">0/s</td>
                             <td>-</td>
+                            <td><span style="color: var(--accent-success); font-size: 0.85rem;"><i class="fa-solid fa-check-circle"></i> Active</span></td>
                         </tr>
                     </tbody>
                 </table>
@@ -265,69 +285,53 @@ const statusTemplateHTML = `
 
     <script>
         // --- Chart Configuration ---
-        const ctx = document.getElementById('trafficChart').getContext('2d');
+        Chart.defaults.font.family = "'Plus Jakarta Sans', sans-serif";
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.borderColor = 'rgba(51, 65, 85, 0.5)';
+
+        // Line Chart (Traffic)
+        const ctxTraffic = document.getElementById('trafficChart').getContext('2d');
         const maxDataPoints = 60;
         const initialData = Array(maxDataPoints).fill(0);
 
-        Chart.defaults.color = '#94a3b8';
-        Chart.defaults.borderColor = '#334155';
-
-        const trafficChart = new Chart(ctx, {
+        const trafficChart = new Chart(ctxTraffic, {
             type: 'line',
             data: {
                 labels: Array(maxDataPoints).fill(''),
                 datasets: [
                     {
-                        label: 'TCP In',
+                        label: 'Inbound',
+                        data: [...initialData],
+                        borderColor: '#10b981',
+                        backgroundColor: (context) => {
+                            const ctx = context.chart.ctx;
+                            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+                            gradient.addColorStop(0, 'rgba(16, 185, 129, 0.2)');
+                            gradient.addColorStop(1, 'rgba(16, 185, 129, 0)');
+                            return gradient;
+                        },
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 0,
+                        pointHoverRadius: 4
+                    },
+                    {
+                        label: 'Outbound',
                         data: [...initialData],
                         borderColor: '#3b82f6',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        backgroundColor: (context) => {
+                            const ctx = context.chart.ctx;
+                            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+                            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.2)');
+                            gradient.addColorStop(1, 'rgba(59, 130, 246, 0)');
+                            return gradient;
+                        },
                         borderWidth: 2,
                         fill: true,
                         tension: 0.4,
-                        pointRadius: 0
-                    },
-                    {
-                        label: 'TCP Out',
-                        data: [...initialData],
-                        borderColor: '#60a5fa',
-                        backgroundColor: 'rgba(96, 165, 250, 0.1)',
-                        borderWidth: 2,
-                        borderDash: [5, 5],
-                        fill: true,
-                        tension: 0.4,
-                        pointRadius: 0
-                    },
-                    {
-                        label: 'UDP In',
-                        data: [...initialData],
-                        borderColor: '#f59e0b',
-                        backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4,
-                        pointRadius: 0
-                    },
-                    {
-                        label: 'UDP Out',
-                        data: [...initialData],
-                        borderColor: '#fbbf24',
-                        backgroundColor: 'rgba(251, 191, 36, 0.1)',
-                        borderWidth: 2,
-                        borderDash: [5, 5],
-                        fill: true,
-                        tension: 0.4,
-                        pointRadius: 0
-                    },
-                    {
-                        label: 'DNS Queries',
-                        data: [...initialData],
-                        borderColor: '#06b6d4',
-                        backgroundColor: 'rgba(6, 182, 212, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.4,
-                        pointRadius: 0
+                        pointRadius: 0,
+                        pointHoverRadius: 4
                     }
                 ]
             },
@@ -338,7 +342,11 @@ const statusTemplateHTML = `
                 interaction: { intersect: false, mode: 'index' },
                 scales: {
                     x: { display: false },
-                    y: { beginAtZero: true, grid: { color: 'rgba(255, 255, 255, 0.05)' } }
+                    y: { 
+                        beginAtZero: true, 
+                        grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                        ticks: { callback: (value) => formatBytes(value * 1024) + '/s' }
+                    }
                 },
                 plugins: {
                     legend: { position: 'top', align: 'end', labels: { usePointStyle: true, boxWidth: 8 } },
@@ -348,13 +356,41 @@ const statusTemplateHTML = `
                         bodyColor: '#94a3b8',
                         borderColor: '#334155',
                         borderWidth: 1,
-                        padding: 12,
+                        padding: 10,
                         callbacks: {
-                            label: function(context) {
-                                if (context.dataset.label.includes('DNS')) {
-                                    return context.dataset.label + ': ' + context.raw.toFixed(1) + '/s';
-                                }
-                                return context.dataset.label + ': ' + formatBytes(context.raw * 1024) + '/s';
+                            label: (context) => context.dataset.label + ': ' + formatBytes(context.raw * 1024) + '/s'
+                        }
+                    }
+                }
+            }
+        });
+
+        // Doughnut Chart (Protocol Distribution)
+        const ctxProtocol = document.getElementById('protocolChart').getContext('2d');
+        const protocolChart = new Chart(ctxProtocol, {
+            type: 'doughnut',
+            data: {
+                labels: ['TCP', 'UDP'],
+                datasets: [{
+                    data: [0, 0],
+                    backgroundColor: ['#3b82f6', '#f59e0b'],
+                    borderWidth: 0,
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '70%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                const value = context.raw;
+                                const total = context.chart._metasets[context.datasetIndex].total;
+                                const percentage = ((value / total) * 100).toFixed(1) + '%';
+                                return context.label + ': ' + formatBytes(value) + ' (' + percentage + ')';
                             }
                         }
                     }
@@ -366,7 +402,7 @@ const statusTemplateHTML = `
         let lastStats = null;
         const fetchInterval = 2000;
 
-        function formatBytes(bytes, decimals = 2) {
+        function formatBytes(bytes, decimals = 1) {
             if (bytes === 0) return '0 B';
             const k = 1024;
             const dm = decimals < 0 ? 0 : decimals;
@@ -392,8 +428,9 @@ const statusTemplateHTML = `
 
                     // Update Counters
                     document.getElementById('tcp-active').textContent = data.TcpActiveConnections;
-                    document.getElementById('total-in').textContent = formatBytes(data.TcpBytesIn + data.UdpBytesIn);
-                    document.getElementById('total-out').textContent = formatBytes(data.TcpBytesOut + data.UdpBytesOut);
+                    
+                    const totalBytes = data.TcpBytesIn + data.TcpBytesOut + data.UdpBytesIn + data.UdpBytesOut;
+                    document.getElementById('total-traffic').textContent = formatBytes(totalBytes);
                     
                     // Update Last Ping
                     const now = Math.floor(Date.now() / 1000);
@@ -401,7 +438,6 @@ const statusTemplateHTML = `
                     document.getElementById('last-ping').textContent = (data.LastSuccessfulPing > 0) ? diff + 's ago' : 'Never';
 
                     // Update System Stats
-                    document.getElementById('sys-mem').textContent = formatBytes(data.SystemMemoryUsage);
                     document.getElementById('sys-goroutines').textContent = data.NumGoroutines;
 
                     // Update Table
@@ -409,10 +445,16 @@ const statusTemplateHTML = `
                     document.getElementById('tcp-out-table').textContent = formatBytes(data.TcpBytesOut);
                     document.getElementById('udp-in-table').textContent = formatBytes(data.UdpBytesIn);
                     document.getElementById('udp-out-table').textContent = formatBytes(data.UdpBytesOut);
-                    document.getElementById('dns-queries-table').textContent = data.DnsQueries;
-                    document.getElementById('dns-errors-table').textContent = data.DnsErrors;
+                    document.getElementById('dns-queries-table').textContent = data.DnsQueries + ' Queries';
+                    document.getElementById('dns-errors-table').textContent = data.DnsErrors + ' Errors';
 
-                    // Calculate Rates & Update Chart
+                    // Update Protocol Chart Data
+                    const totalTcp = data.TcpBytesIn + data.TcpBytesOut;
+                    const totalUdp = data.UdpBytesIn + data.UdpBytesOut;
+                    protocolChart.data.datasets[0].data = [totalTcp, totalUdp];
+                    protocolChart.update();
+
+                    // Calculate Rates & Update Line Chart
                     if (lastStats) {
                         const dt = fetchInterval / 1000;
                         
@@ -422,37 +464,33 @@ const statusTemplateHTML = `
                         let udpOutRate = (data.UdpBytesOut - lastStats.UdpBytesOut) / dt;
                         let dnsRate = (data.DnsQueries - lastStats.DnsQueries) / dt;
 
-                        // Handle server restarts (counters reset to 0)
+                        // Handle resets
                         if (tcpInRate < 0) tcpInRate = 0;
                         if (tcpOutRate < 0) tcpOutRate = 0;
                         if (udpInRate < 0) udpInRate = 0;
                         if (udpOutRate < 0) udpOutRate = 0;
-                        if (dnsRate < 0) dnsRate = 0;
 
-                        // Update Rate Labels
-                        document.getElementById('rate-in').textContent = formatBytes(tcpInRate + udpInRate) + '/s';
-                        document.getElementById('rate-out').textContent = formatBytes(tcpOutRate + udpOutRate) + '/s';
-                        
+                        const totalRate = tcpInRate + tcpOutRate + udpInRate + udpOutRate;
+                        document.getElementById('total-rate').innerHTML = '<i class="fa-solid fa-bolt"></i> ' + formatBytes(totalRate) + '/s';
+
+                        // Update Table Rates
                         document.getElementById('tcp-rate-in').textContent = formatBytes(tcpInRate) + '/s';
                         document.getElementById('tcp-rate-out').textContent = formatBytes(tcpOutRate) + '/s';
                         document.getElementById('udp-rate-in').textContent = formatBytes(udpInRate) + '/s';
                         document.getElementById('udp-rate-out').textContent = formatBytes(udpOutRate) + '/s';
                         document.getElementById('dns-rate').textContent = dnsRate.toFixed(1) + '/s';
 
-                        // Update Chart Data (Convert to KB/s for chart y-axis readability)
+                        // Update Line Chart (KB/s)
+                        const totalInRate = tcpInRate + udpInRate;
+                        const totalOutRate = tcpOutRate + udpOutRate;
+
                         const datasets = trafficChart.data.datasets;
-                        datasets[0].data.push(tcpInRate / 1024);
+                        datasets[0].data.push(totalInRate / 1024);
                         datasets[0].data.shift();
-                        datasets[1].data.push(tcpOutRate / 1024);
+                        datasets[1].data.push(totalOutRate / 1024);
                         datasets[1].data.shift();
-                        datasets[2].data.push(udpInRate / 1024);
-                        datasets[2].data.shift();
-                        datasets[3].data.push(udpOutRate / 1024);
-                        datasets[3].data.shift();
-                        datasets[4].data.push(dnsRate);
-                        datasets[4].data.shift();
                         
-                        trafficChart.update('none'); // 'none' mode for performance
+                        trafficChart.update('none');
                     }
 
                     lastStats = data;
