@@ -22,7 +22,7 @@ spinner() {
 }
 
 echo -e "${GREEN}=========================================${NC}"
-echo -e "${GREEN}   Elahe Tunnel Single-Line Installer v3.2 (Final) ${NC}"
+echo -e "${GREEN}   Elahe Tunnel Single-Line Installer v1.0.0 (Final) ${NC}"
 echo -e "${GREEN}=========================================${NC}"
 
 # 1. Install Dependencies
@@ -60,8 +60,8 @@ else
 fi
 
 # 3. Install Go
-if ! command -v go &> /dev/null || [ "$(go version | awk '{print $3}' | sed 's/go//' | cut -d. -f2)" -lt 24 ]; then
-    echo -n "Installing Go 1.24.0..."
+if ! command -v go &> /dev/null || [ "$(go version | awk '{print $3}' | sed 's/go//' | cut -d. -f2)" -lt 22 ]; then
+    echo -n "Installing Go 1.22.2..."
     (
         rm -rf /usr/local/go
         ARCH=$(uname -m)
@@ -69,7 +69,7 @@ if ! command -v go &> /dev/null || [ "$(go version | awk '{print $3}' | sed 's/g
             x86_64) ARCH="amd64" ;;
             aarch64) ARCH="arm64" ;;
         esac
-        URL="https://go.dev/dl/go1.24.0.linux-${ARCH}.tar.gz"
+        URL="https://go.dev/dl/go1.22.2.linux-${ARCH}.tar.gz"
         curl -L -o /tmp/go.tar.gz "$URL"
         tar -C /usr/local -xzf /tmp/go.tar.gz
         rm /tmp/go.tar.gz
