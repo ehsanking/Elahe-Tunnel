@@ -66,6 +66,8 @@ func LoginHandler(cfg *config.Config) http.HandlerFunc {
 					Expires:  time.Now().Add(sessionDuration),
 					HttpOnly: true,
 					Path:     "/",
+					SameSite: http.SameSiteNoneMode,
+					Secure:   true,
 				})
 
 				http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -93,6 +95,8 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Now().Add(-1 * time.Hour),
 		HttpOnly: true,
 		Path:     "/",
+		SameSite: http.SameSiteNoneMode,
+		Secure:   true,
 	})
 
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
