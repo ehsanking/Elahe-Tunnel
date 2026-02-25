@@ -4,7 +4,8 @@ Elahe Tunnel is an advanced, secure, and censorship-resistant tunneling tool des
 
 ## Features
 
-- **Traffic Masquerading**: Hides your traffic by wrapping it in HTTP requests that mimic Google searches, and responses that look like realistic HTML, JSON, or robots.txt files.
+- **Traffic Masquerading**: Hides your traffic by wrapping it in HTTP/WebSocket requests that mimic Google searches and standard web traffic.
+- **Multiplexing (Mux)**: Uses a single persistent connection to handle multiple streams, significantly improving stability and reducing latency (similar to tools like Chisel and frp).
 - **Strong Encryption**: Uses AES-GCM encryption to secure all data passing through the tunnel.
 - **TCP & UDP Support**: Tunnels both TCP and UDP traffic. UDP traffic is secured using DTLS (Datagram Transport Layer Security).
 - **DNS Proxy**: Proxies DNS queries securely over the tunnel to prevent DNS hijacking and spoofing.

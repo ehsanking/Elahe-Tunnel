@@ -17,12 +17,12 @@ import (
 	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
 	"github.com/ehsanking/elahe-tunnel/internal/stats"
 	"github.com/ehsanking/elahe-tunnel/internal/web"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"strings"
 	"sync/atomic"
 	"github.com/pion/dtls/v2"
+	"github.com/xtaci/smux"
 )
 
 // RunClient starts the internal node client.
@@ -603,117 +603,74 @@ func manageConnection(httpClient *http.Client, host, remoteIP string, key []byte
 	}
 }
 
-func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteIP string, key []byte, cfg *config.Config, target string) {
-	// Generate Session ID
-	sidBytes, err := crypto.GenerateKey()
+var (
+	muxSession *smux.Session
+	muxLock    sync.Mutex
+)
+
+func getMuxSession(remoteIP string, port int, host string) (*smux.Session, error) {
+	muxLock.Lock()
+	defer muxLock.Unlock()
+
+	if muxSession != nil && !muxSession.IsClosed() {
+		return muxSession, nil
+	}
+
+	url := fmt.Sprintf("wss://%s:%d/search/results", remoteIP, port)
+	session, err := DialWebSocket(url, host)
 	if err != nil {
-		fmt.Printf("Failed to generate session ID: %v\n", err)
+		return nil, err
+	}
+
+	muxSession = session
+	return muxSession, nil
+}
+
+func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteIP string, key []byte, cfg *config.Config, target string) {
+	port := cfg.TunnelPort
+	if port == 0 {
+		port = 443
+	}
+
+	session, err := getMuxSession(remoteIP, port, cfg.RemoteHost)
+	if err != nil {
+		fmt.Printf("Failed to get mux session: %v\n", err)
+		localConn.Close()
 		return
 	}
-	sessionID := hex.EncodeToString(sidBytes[:8])
 
-	stats.RegisterConnection(sessionID, localConn.RemoteAddr().String(), target, "TCP")
-	defer stats.UnregisterConnection(sessionID)
+	stream, err := session.OpenStream()
+	if err != nil {
+		fmt.Printf("Failed to open mux stream: %v\n", err)
+		localConn.Close()
+		return
+	}
+	defer stream.Close()
 	defer localConn.Close()
 
-	buf := make([]byte, 32*1024)
-	lastRequestTime := time.Now()
-
-	for {
-		// Read data from local application with a short timeout to allow polling
-		localConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-		n, err := localConn.Read(buf)
-		
-		isIdle := false
-		if err != nil {
-			if err == io.EOF {
-				return // Connection closed by local app
-			}
-			// Check for timeout
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// Timeout means no data to send
-				n = 0
-				isIdle = true
-			} else {
-				fmt.Printf("Error reading from local connection: %v\n", err)
-				return
-			}
-		}
-
-		// If idle, only send a keep-alive request every 5 seconds
-		if isIdle && time.Since(lastRequestTime) < 5*time.Second {
-			continue
-		}
-
-		lastRequestTime = time.Now()
-
-		// Construct payload: SessionID|Destination|Payload
-		var payload []byte
-		prefix := []byte(sessionID + "|" + target + "|")
-		if n > 0 {
-			payload = append(prefix, buf[:n]...)
-			stats.AddTcpBytesIn(uint64(n))
-		} else {
-			payload = prefix
-		}
-
-		encrypted, err := crypto.Encrypt(payload, key)
-		if err != nil {
-			fmt.Printf("Encryption error: %v\n", err)
-			return
-		}
-
-		port := cfg.TunnelPort
-		if port == 0 {
-			port = 443
-		}
-		targetHost := fmt.Sprintf("%s:%d", cfg.RemoteHost, port)
-
-		// The host in the request must match the CN of the certificate (www.google.com)
-		// but the request itself goes to the user's server IP.
-		req, err := masquerade.WrapInHttpRequest(encrypted, targetHost)
-		if err != nil {
-			fmt.Printf("Failed to wrap HTTP request: %v\n", err)
-			return
-		}
-		// Override the request URL to point to the actual server IP
-		req.URL.Scheme = "https"
-		req.URL.Host = fmt.Sprintf("%s:%d", remoteIP, port)
-
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			fmt.Printf("Failed to send HTTP request: %v\n", err)
-			return
-		}
-		
-		// Unwrap the response
-		respData, err := masquerade.UnwrapFromHttpResponse(resp)
-		resp.Body.Close() // Close immediately
-		if err != nil {
-			fmt.Printf("Failed to unwrap HTTP response: %v\n", err)
-			return
-		}
-
-		// Decrypt the response data
-		decrypted, err := crypto.Decrypt(respData, key)
-		if err != nil {
-			fmt.Printf("Decryption error: %v\n", err)
-			return
-		}
-
-		// Write the final data back to the local application
-		if len(decrypted) > 0 {
-			bytesWritten, err := localConn.Write(decrypted)
-			stats.AddTcpBytesOut(uint64(bytesWritten))
-			if err != nil {
-				fmt.Printf("Error writing to local connection: %v\n", err)
-				return
-			}
-		} else {
-			// No data received. If we also sent no data, sleep a bit to avoid busy loop.
-			if n == 0 {
-				time.Sleep(50 * time.Millisecond)
-			}
-		}
+	// Send destination header: [1 byte len][destination string]
+	destBytes := []byte(target)
+	header := []byte{byte(len(destBytes))}
+	_, err = stream.Write(header)
+	if err != nil {
+		return
 	}
+	_, err = stream.Write(destBytes)
+	if err != nil {
+		return
+	}
+
+	// Tunnel data
+	done := make(chan struct{})
+	go func() {
+		io.Copy(stream, localConn)
+		close(done)
+	}()
+
+	go func() {
+		io.Copy(localConn, stream)
+		close(done)
+	}()
+
+	<-done
 }

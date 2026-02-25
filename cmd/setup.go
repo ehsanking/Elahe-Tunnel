@@ -248,7 +248,7 @@ func setupInternal() {
 				fmt.Println("✅ 2FA Enabled!")
 				fmt.Printf("Your 2FA Secret Key is: %s\n", secret)
 				fmt.Println("Please add this key to your Authenticator app (Google Authenticator, Authy, etc.).")
-				fmt.Println("========================================================\n")
+				fmt.Println("========================================================")
 			}
 		}
 	}

@@ -6,6 +6,8 @@ require (
 	github.com/miekg/dns v1.1.58
 	github.com/pion/dtls/v2 v2.2.7
 	github.com/spf13/cobra v1.8.1
+	github.com/gorilla/websocket v1.5.1
+	github.com/xtaci/smux v1.5.24
 	golang.org/x/time v0.5.0
 )
 

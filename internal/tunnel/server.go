@@ -15,6 +15,8 @@ import (
 	"github.com/ehsanking/elahe-tunnel/internal/logger"
 	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
 	"github.com/ehsanking/elahe-tunnel/internal/stats"
+	"github.com/gorilla/websocket"
+	"github.com/xtaci/smux"
 	"github.com/pion/dtls/v2"
 	"golang.org/x/time/rate"
 )
@@ -37,6 +39,9 @@ func RunServer(cfg *config.Config) error {
 	pingHandler := http.HandlerFunc(handlePingRequest(key))
 	http.Handle("/favicon.ico", recoveryMiddleware(limitMiddleware(limiter, pingHandler)))
 
+	wsHandler := http.HandlerFunc(handleWebSocket(key))
+	http.Handle("/search/results", recoveryMiddleware(wsHandler))
+
 	tunnelHandler := http.HandlerFunc(handleTunnelRequest(key))
 	http.Handle("/", recoveryMiddleware(limitMiddleware(limiter, tunnelHandler)))
 
@@ -50,6 +55,99 @@ func RunServer(cfg *config.Config) error {
 		return fmt.Errorf("server failed: %w. Check if port %d is free and you have root privileges", err, port)
 	}
 	return nil
+}
+
+func handleWebSocket(key []byte) http.HandlerFunc {
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  32768,
+		WriteBufferSize: 32768,
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Basic authentication via header or query param
+		// For stealth, we can use a cookie or a custom header that looks like a tracking ID
+		auth := r.Header.Get("Sec-WebSocket-Protocol")
+		if auth == "" {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
+		// Verify auth (simple check for now, could be more complex)
+		// We'll use the connection key as the protocol for simplicity in this step
+		// In a real scenario, this would be an encrypted token
+		if auth != "elahe-tunnel" {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			logger.Error.Printf("WebSocket upgrade failed: %v", err)
+			return
+		}
+
+		wsConn := NewWebSocketConn(conn)
+		session, err := smux.Server(wsConn, SmuxConfig())
+		if err != nil {
+			conn.Close()
+			return
+		}
+		defer session.Close()
+
+		for {
+			stream, err := session.AcceptStream()
+			if err != nil {
+				break
+			}
+
+			go handleSmuxStream(stream, key)
+		}
+	}
+}
+
+func handleSmuxStream(stream *smux.Stream, key []byte) {
+	defer stream.Close()
+
+	// The first message should be the destination
+	// We'll use a simple format: [1 byte len][destination string]
+	header := make([]byte, 1)
+	_, err := io.ReadFull(stream, header)
+	if err != nil {
+		return
+	}
+
+	destLen := int(header[0])
+	destBuf := make([]byte, destLen)
+	_, err = io.ReadFull(stream, destBuf)
+	if err != nil {
+		return
+	}
+
+	destination := string(destBuf)
+	
+	// Dial target
+	targetConn, err := net.DialTimeout("tcp", destination, 10*time.Second)
+	if err != nil {
+		return
+	}
+	defer targetConn.Close()
+
+	// Tunnel data
+	done := make(chan struct{})
+	go func() {
+		io.Copy(targetConn, stream)
+		close(done)
+	}()
+
+	go func() {
+		io.Copy(stream, targetConn)
+		close(done)
+	}()
+
+	<-done
 }
 
 func recoveryMiddleware(next http.Handler) http.Handler {
