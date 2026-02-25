@@ -11,8 +11,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const pidFile = "/tmp/elahe-tunnel.pid"
-
 var stopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop the running Elahe Tunnel background process.",

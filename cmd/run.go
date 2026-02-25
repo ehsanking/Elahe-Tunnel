@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/ehsanking/elahe-tunnel/internal/config"
 	"github.com/ehsanking/elahe-tunnel/internal/tunnel"
@@ -97,13 +96,4 @@ func init() {
 	runCmd.Flags().Int("web-panel-port", 0, "Override the web panel port")
 	runCmd.Flags().Bool("dns-proxy-enabled", false, "Override the DNS proxy setting")
 	runCmd.Flags().Bool("foreground", false, "Run in foreground (do not daemonize)")
-}
-
-func processExists(pid int) bool {
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = process.Signal(syscall.Signal(0))
-	return err == nil
 }
