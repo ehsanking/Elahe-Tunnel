@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -37,6 +38,12 @@ func RunClient(cfg *config.Config) error {
 	// If listen address is provided, start the proxy server
 	if cfg.TunnelListenAddr != "" {
 		go runProxyServer(cfg)
+	}
+
+	// If connection key is empty, use a default one for simplicity
+	if cfg.ConnectionKey == "" {
+		cfg.ConnectionKey = base64.StdEncoding.EncodeToString([]byte("ELAHE_DEFAULT_KEY_12345"))
+		logger.Info.Println("Using default connection key for simplicity.")
 	}
 
 	key, err := crypto.DecodeBase64Key(cfg.ConnectionKey)
