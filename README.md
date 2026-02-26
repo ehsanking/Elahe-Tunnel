@@ -1,8 +1,8 @@
 <div align="center">
   <img src="./resources/images/header.svg" alt="Elahe Tunnel Header" width="100%" style="border-radius: 10px; max-height: 300px; object-fit: cover;">
 
-  <h1 style="margin-top: 20px;">Elahe Tunnel (تونل الهه)</h1>
-  <p><strong>نسل جدید ابزارهای دور زدن فیلترینگ و مخفی‌سازی ترافیک (DPI Evasion)</strong></p>
+  <h1 style="margin-top: 20px;">Elahe Tunnel</h1>
+  <p><strong>Next-Gen Censorship Circumvention & Traffic Obfuscation</strong></p>
 
   <p>
     <a href="https://golang.org/"><img src="https://img.shields.io/badge/Made%20with-Go-00ADD8?style=for-the-badge&logo=go" alt="Made with Go"></a>
@@ -11,115 +11,118 @@
     <a href="#"><img src="https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge" alt="Platform"></a>
     <a href="#"><img src="https://img.shields.io/badge/Status-Active-success?style=for-the-badge" alt="Status"></a>
   </p>
+
+  <p>
+    <a href="./README.md"><strong>English</strong></a> |
+    <a href="./README.fa.md"><strong>فارسی</strong></a>
+  </p>
 </div>
 
 ---
 
-## 🚀 معرفی (Overview)
+## 🚀 Overview
 
-**Elahe Tunnel** یک ابزار پیشرفته، امن و با کارایی بالا برای ایجاد تونل و دور زدن سیستم‌های فیلترینگ و بازرسی عمیق بسته‌ها (DPI) است. این ابزار با مخفی‌سازی ترافیک (Obfuscation) در قالب درخواست‌های عادی وب (مانند جستجوی گوگل)، ترافیک شما را از دید فایروال‌ها پنهان می‌کند.
+**Elahe Tunnel** is an advanced, high-performance tunneling tool engineered to bypass sophisticated Deep Packet Inspection (DPI) systems. By camouflaging data packets to mimic legitimate Google Search queries and results, it renders traffic indistinguishable from normal web browsing.
 
-این سیستم با معماری کلاینت-سرور (نود داخلی و خارجی) طراحی شده تا ارتباطی پایدار و رمزنگاری‌شده را در شبکه‌های به شدت محدود شده فراهم کند.
+Designed for resilience in restrictive network environments, it provides a secure, encrypted bridge between an internal node (e.g., inside a censored region) and an external node (with unrestricted internet access).
 
-## ✨ تکنولوژی‌ها و ویژگی‌های کلیدی (Technologies & Features)
+## ✨ Key Features & Technologies
 
-این پروژه با استفاده از مدرن‌ترین تکنولوژی‌های شبکه و رمزنگاری توسعه داده شده است:
+*   **Go (Golang) Backend:** Built with Go for superior concurrency, low latency, and minimal resource footprint.
+*   **Multiplexing with Smux:** Utilizes `xtaci/smux` to transport numerous TCP/UDP connections over a single stream, drastically reducing handshake overhead and boosting speed.
+*   **WebSocket Transport:** Leverages `gorilla/websocket` to obfuscate traffic as standard web traffic (HTTP/HTTPS), making it extremely difficult for DPI systems to detect.
+*   **Secure UDP Tunneling with DTLS:** Implements `pion/dtls/v2` for secure, fast, and packet-loss-resilient UDP transport, ideal for voice/video calls, gaming, and DNS.
+*   **Military-Grade Encryption (AES-256-GCM):** All packets are encrypted with the powerful AES-GCM algorithm to ensure data confidentiality and integrity.
+*   **Dynamic Config Reload:** With `atomic.Pointer`, the configuration file can be modified and reloaded without any service downtime via the `/reload-config` API endpoint.
+*   **Real-Time Monitoring:** Features a built-in web dashboard and API for monitoring active connections and killing specific streams (`/kill`).
 
-*   **زبان برنامه‌نویسی Go (Golang):** استفاده از Go برای دستیابی به بالاترین سطح همزمانی (Concurrency)، تاخیر پایین (Low Latency) و مصرف بهینه منابع سرور.
-*   **مالتی‌پلکسینگ با Smux:** استفاده از کتابخانه `xtaci/smux` برای انتقال ده‌ها کانکشن TCP/UDP روی یک استریم واحد. این کار باعث کاهش چشمگیر Handshakeها و افزایش سرعت تونل می‌شود.
-*   **انتقال بر بستر WebSocket:** استفاده از `gorilla/websocket` برای مخفی‌سازی ترافیک در قالب ترافیک استاندارد وب (HTTP/HTTPS) که شناسایی آن توسط DPI را بسیار دشوار می‌کند.
-*   **تونل امن UDP با DTLS:** استفاده از `pion/dtls/v2` برای انتقال امن، سریع و بدون افت پکتِ ترافیک UDP (بسیار مناسب برای تماس‌های صوتی/تصویری، بازی‌های آنلاین و DNS).
-*   **رمزنگاری نظامی (AES-256-GCM):** تمامی پکت‌ها پیش از ارسال با الگوریتم قدرتمند AES-GCM رمزنگاری می‌شوند تا امنیت و یکپارچگی داده‌ها تضمین شود.
-*   **بارگذاری مجدد پویا (Dynamic Config Reload):** با استفاده از پوینترهای اتمیک (`atomic.Pointer`) در ساختار برنامه، می‌توانید فایل کانفیگ را تغییر داده و بدون نیاز به ری‌استارت کردن سرویس (Zero Downtime) تغییرات را اعمال کنید.
-*   **مدیریت و مانیتورینگ:** دارای پنل وب داخلی و API برای مشاهده وضعیت کانکشن‌ها و قطع ارتباط‌های خاص (`/kill`).
+## 🛠️ Architecture
 
-## 🛠️ معماری سیستم (Architecture)
+The system operates on a client-server model:
 
-سیستم از دو بخش اصلی تشکیل شده است:
-
-1.  **نود داخلی (Client):** در شبکه محدود شده (مثلاً ایران) قرار می‌گیرد. ترافیک کاربر را دریافت کرده، رمزنگاری و مخفی‌سازی می‌کند و به سرور خارج می‌فرستد.
-2.  **نود خارجی (Server):** در شبکه آزاد (خارج از کشور) قرار دارد. ترافیک مخفی‌شده را دریافت، رمزگشایی و به اینترنت آزاد منتقل می‌کند و پاسخ را مجدداً مخفی کرده و برمی‌گرداند.
+1.  **Internal Node (Client):** Located within the restricted network. It accepts local traffic, encrypts it, wraps it in a fake Google Search query, and sends it to the external node.
+2.  **External Node (Server):** Located in an unrestricted network. It receives the "search query," unwraps and decrypts the payload, forwards it to the destination, and returns the response wrapped in a fake Google Search results page.
 
 ```mermaid
 graph LR
-    User[کاربر] -->|TCP/UDP| Client[نود داخلی / ایران]
-    Client -->|"ترافیک مخفی‌شده (WebSocket/Smux)"| Server[نود خارجی / خارج]
-    Server -->|ترافیک واقعی| Internet[اینترنت آزاد]
-    Internet -->|پاسخ| Server
-    Server -->|"ترافیک مخفی‌شده"| Client
-    Client -->|دیتای رمزگشایی شده| User
+    User[User Device] -->|TCP/UDP| Client[Internal Node]
+    Client -->|"Obfuscated Traffic (WebSocket/Smux)"| Server[External Node]
+    Server -->|Real Traffic| Internet[Internet]
+    Internet -->|Response| Server
+    Server -->|"Obfuscated Traffic"| Client
+    Client -->|Decrypted Data| User
 ```
 
-## 📦 نصب و راه‌اندازی (Installation)
+## 📦 Installation
 
-برای نصب سریع و خودکار به همراه تمام پیش‌نیازها (از جمله Go)، دستور زیر را اجرا کنید:
+Install and configure Elahe Tunnel with a single command. This script handles dependencies (Go) and setup automatically.
 
 ```bash
 bash <(curl -s -L https://raw.githubusercontent.com/ehsanking/elahe-tunnel/main/install.sh)
 ```
 
-**کامپایل دستی (برای توسعه‌دهندگان):**
+**Manual Compilation (for developers):**
 ```bash
 git clone https://github.com/ehsanking/elahe-tunnel.git
 cd elahe-tunnel
 go build -o elahe-tunnel main.go
 ```
 
-## 🚦 نحوه استفاده (Usage)
+## 🚦 Usage
 
-پس از نصب، می‌توانید از طریق CLI برنامه را مدیریت کنید:
+Once installed, manage the tunnel using the `elahe-tunnel` CLI:
 
-### ۱. پیکربندی اولیه (Setup)
-ابتدا باید سرور و کلاینت را کانفیگ کنید. این دستور یک ویزارد تعاملی برای ساخت فایل `search_tunnel_config.json` اجرا می‌کند:
+### 1. Setup
+Configure your node as either **Internal** (Client) or **External** (Server). This command launches an interactive wizard to create the `search_tunnel_config.json` file.
 ```bash
 ./elahe-tunnel setup
 ```
-*(دقت کنید که کلید رمزنگاری یا `connection_key` باید در هر دو سرور ایران و خارج دقیقاً یکسان باشد).*
+*(Ensure the `connection_key` is identical on both the internal and external nodes).*
 
-### ۲. اجرای سرویس (Run)
-برای اجرای تونل در پس‌زمینه (Background):
+### 2. Run
+Start the tunnel service in the background.
 ```bash
 ./elahe-tunnel run
 ```
 
-### ۳. مدیریت سرویس (Manage)
-برای بررسی وضعیت اجرای سرویس یا متوقف کردن آن:
+### 3. Manage
+Check status or stop the background service.
 ```bash
 ./elahe-tunnel status
 ./elahe-tunnel stop
 ```
 
-### ۴. بارگذاری مجدد تنظیمات بدون قطعی (Dynamic Reload)
-اگر فایل `search_tunnel_config.json` را به صورت دستی ویرایش کردید (مثلاً پورت جدیدی اضافه کردید)، نیازی به ری‌استارت سرویس نیست. کافیست API زیر را فراخوانی کنید تا تنظیمات به صورت آنی اعمال شوند:
+### 4. Dynamic Reload
+If you manually edit `search_tunnel_config.json`, you can apply the changes without restarting the service by calling the reload API:
 ```bash
 curl -X POST http://127.0.0.1:8080/reload-config
 ```
-*(پورت `8080` را با پورتی که در کانفیگ برای پنل وب یا تونل تنظیم کرده‌اید جایگزین کنید).*
+*(Replace `8080` with the port you configured for the web panel or tunnel).*
 
-## 🔧 ساختار فایل کانفیگ (Configuration)
+## 🔧 Configuration
 
-تنظیمات در فایل `search_tunnel_config.json` ذخیره می‌شوند.
+Configuration is stored in `search_tunnel_config.json`.
 
-**نمونه کانفیگ سرور خارج (External Node):**
+**Example `search_tunnel_config.json` for an External Node:**
 ```json
 {
   "node_type": "external",
   "tunnel_port": 443,
-  "connection_key": "کلید_تولید_شده_توسط_setup",
+  "connection_key": "YOUR_GENERATED_KEY",
   "web_panel_enabled": true,
   "web_panel_port": 8080,
   "web_panel_user": "admin",
-  "web_panel_pass": "secure_password"
+  "web_panel_pass": "your_secure_password"
 }
 ```
 
-**نمونه کانفیگ سرور ایران (Internal Node):**
+**Example `search_tunnel_config.json` for an Internal Node:**
 ```json
 {
   "node_type": "internal",
-  "remote_host": "IP_سرور_خارج",
+  "remote_host": "YOUR_SERVER_IP",
   "tunnel_port": 443,
-  "connection_key": "کلید_تولید_شده_توسط_setup",
+  "connection_key": "YOUR_GENERATED_KEY",
   "proxies": [
     {
       "name": "my-tcp-proxy",
@@ -132,19 +135,19 @@ curl -X POST http://127.0.0.1:8080/reload-config
 }
 ```
 
-## 🤝 مشارکت (Contributing)
+## 🤝 Contributing
 
-ما از مشارکت شما استقبال می‌کنیم! برای افزودن ویژگی‌های جدید یا رفع باگ‌ها، لطفاً Pull Request ارسال کنید.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## ⚠️ سلب مسئولیت (Disclaimer)
+## ⚠️ Disclaimer
 
-این ابزار صرفاً جهت مقاصد آموزشی و تحقیقاتی برای بررسی روش‌های دور زدن فیلترینگ و سیستم‌های بازرسی عمیق بسته‌ها (DPI) توسعه داده شده است. توسعه‌دهندگان این پروژه هیچ‌گونه مسئولیتی در قبال استفاده نادرست یا غیرقانونی از این نرم‌افزار ندارند.
+This tool is intended for educational and research purposes only, specifically to demonstrate how censorship circumvention and traffic obfuscation techniques work. The developers of this project are not responsible for any misuse of this software.
 
-## 📜 لایسنس (License)
+## 📜 License
 
-این پروژه تحت لایسنس MIT منتشر شده است. برای اطلاعات بیشتر فایل `LICENSE` را مطالعه کنید.
+Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
 <div align="center">
-  <sub>ساخته شده برای اینترنت آزاد.</sub>
+  <sub>Built with ❤️ for internet freedom.</sub>
 </div>
