@@ -2,11 +2,13 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xtaci/smux"
-	"sync"
 )
 
 // ActiveConnection represents a single, trackable data stream.
@@ -74,6 +76,29 @@ type ProxyConfig struct {
 }
 
 // Config represents the application's configuration.
+// Atomic pointer to the active configuration.
+var atomicConfig atomic.Pointer[Config]
+
+// GetConfig returns the currently active configuration.
+func GetConfig() *Config {
+	return atomicConfig.Load()
+}
+
+// SetConfig sets the active configuration.
+func SetConfig(cfg *Config) {
+	atomicConfig.Store(cfg)
+}
+
+// ReloadConfig reloads the configuration from the file and updates the atomic config.
+func ReloadConfig() (*Config, error) {
+	newCfg, err := LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config for reload: %w", err)
+	}
+	SetConfig(newCfg)
+	return newCfg, nil
+}
+
 type Config struct {
 	NodeType           string `json:"node_type"`
 	ConnectionKey      string `json:"connection_key"` // Stored as base64

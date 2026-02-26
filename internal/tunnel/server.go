@@ -52,7 +52,9 @@ var clientSessions = make(map[*smux.Session]*ClientSession)
 var sessionsLock sync.RWMutex
 
 // RunServer starts the external node server.
-func RunServer(cfg *config.Config) error {
+func RunServer(initialCfg *config.Config) error {
+	config.SetConfig(initialCfg)
+	cfg := config.GetConfig()
 	key, err := crypto.DecodeBase64Key(cfg.ConnectionKey)
 	if err != nil {
 		return fmt.Errorf("failed to decode key: %w", err)
@@ -75,11 +77,14 @@ func RunServer(cfg *config.Config) error {
 	killHandler := http.HandlerFunc(handleKillConnection)
 	http.Handle("/kill", recoveryMiddleware(killHandler))
 
-	tunnelHandler := http.HandlerFunc(handleTunnelRequest(key))
+	reloadConfigHandler := http.HandlerFunc(handleReloadConfig)
+	http.Handle("/reload-config", recoveryMiddleware(reloadConfigHandler))
+
+	tunnelHandler := http.HandlerFunc(handleTunnelRequest())
 	http.Handle("/", recoveryMiddleware(limitMiddleware(limiter, tunnelHandler)))
 
 	// Start the DTLS server in a separate goroutine.
-	go runDtlsServer(key, port)
+	go runDtlsServer(port)
 
 	addr := fmt.Sprintf(":%d", port)
 	logger.Info.Printf("External server listening on %s\n", addr)
@@ -305,11 +310,10 @@ func handlePublicConnection(publicConn net.Conn, client *ClientSession, proxyNam
 	logger.Info.Printf("Closed data stream %d for proxy '%s'.", dataStream.ID(), proxyName)
 }
 
-func handleSmuxStream(stream *smux.Stream, key []byte) {
+func handleSmuxStream(stream *smux.Stream) {
 	defer stream.Close()
 
 	// The first message should be the destination
-	// We'll use a simple format: [1 byte len][destination string]
 	header := make([]byte, 1)
 	_, err := io.ReadFull(stream, header)
 	if err != nil {
@@ -372,7 +376,13 @@ func limitMiddleware(limiter *rate.Limiter, next http.Handler) http.Handler {
 	})
 }
 
-func runDtlsServer(key []byte, port int) {
+func runDtlsServer(port int) {
+	cfg := config.GetConfig()
+	key, err := crypto.DecodeBase64Key(cfg.ConnectionKey)
+	if err != nil {
+		logger.Error.Printf("Failed to decode connection key for DTLS server: %v", err)
+		return
+	}
 	udpAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		logger.Error.Printf("Failed to resolve UDP address: %v", err)
@@ -405,11 +415,11 @@ func runDtlsServer(key []byte, port int) {
 			logger.Error.Printf("DTLS accept error: %v", err)
 			continue
 		}
-		go handleDtlsConnection(conn, key)
+		go handleDtlsConnection(conn)
 	}
 }
 
-func handleDtlsConnection(conn net.Conn, key []byte) {
+func handleDtlsConnection(conn net.Conn) {
 	defer conn.Close()
 	buf := make([]byte, 4096)
 
@@ -490,8 +500,14 @@ var (
 	sessionActivity sync.Map
 )
 
-func handleTunnelRequest(key []byte) http.HandlerFunc {
+func handleTunnelRequest() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := config.GetConfig()
+		key, err := crypto.DecodeBase64Key(cfg.ConnectionKey)
+		if err != nil {
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 		encrypted, err := masquerade.UnwrapFromHttpRequest(r)
 		if err != nil {
 			http.Error(w, "Invalid request format", http.StatusBadRequest)
@@ -505,7 +521,7 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 		}
 
 		if r.Header.Get("X-Tunnel-Type") == "dns" {
-			handleDnsRequest(w, decrypted, key)
+			handleDnsRequest(w, decrypted)
 			return
 		}
 
@@ -639,6 +655,18 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 	}
 }
 
+func handleReloadConfig(w http.ResponseWriter, r *http.Request) {
+	newCfg, err := config.ReloadConfig()
+	if err != nil {
+		logger.Error.Printf("Failed to reload configuration: %v", err)
+		http.Error(w, "Failed to reload configuration", http.StatusInternalServerError)
+		return
+	}
+	logger.Info.Printf("Configuration reloaded successfully. New TunnelPort: %d", newCfg.TunnelPort)
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Configuration reloaded successfully.")
+}
+
 func handleKillConnection(w http.ResponseWriter, r *http.Request) {
 	connID := r.URL.Query().Get("id")
 	if connID == "" {
@@ -662,7 +690,16 @@ func handleKillConnection(w http.ResponseWriter, r *http.Request) {
 	logger.Info.Printf("Web panel user terminated connection %s.", connID)
 }
 
-func handleDnsRequest(w http.ResponseWriter, query []byte, key []byte) {
+
+
+func handleDnsRequest(w http.ResponseWriter, query []byte) {
+	cfg := config.GetConfig()
+	key, err := crypto.DecodeBase64Key(cfg.ConnectionKey)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
 	// Forward to a real DNS server
 	dnsServer := "8.8.8.8:53"
 	conn, err := net.Dial("udp", dnsServer)
