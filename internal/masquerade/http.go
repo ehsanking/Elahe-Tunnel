@@ -27,6 +27,7 @@ func WrapInHttpRequest(data []byte, host string) (*http.Request, error) {
 	var err error
 
 	// Randomly choose between GET and POST
+	randomQuery := getRandomSearchQuery()
 	if rand.Float32() < 0.5 {
 		logger.Info.Println("Masquerading as GET request")
 		// --- Create GET request ---
@@ -38,7 +39,7 @@ func WrapInHttpRequest(data []byte, host string) (*http.Request, error) {
 
 		// Add payload to query parameters
 		q := req.URL.Query()
-		q.Add("q", "how+to+use+search+tunnel") // Decoy query
+		q.Add("q", randomQuery) // Decoy query
 		q.Add("oq", encodedData)                 // Payload
 		q.Add("sourceid", "chrome")
 		req.URL.RawQuery = q.Encode()
@@ -46,7 +47,7 @@ func WrapInHttpRequest(data []byte, host string) (*http.Request, error) {
 		logger.Info.Println("Masquerading as POST request")
 		// --- Create POST request ---
 		form := url.Values{}
-		form.Add("q", "elahe-tunnel-payload") // A decoy query
+		form.Add("q", randomQuery) // A decoy query
 		form.Add("oq", encodedData)            // Hide data in a less obvious param
 		body := strings.NewReader(form.Encode())
 
@@ -94,15 +95,45 @@ func UnwrapFromHttpRequest(r *http.Request) ([]byte, error) {
 }
 
 var userAgents = []string{
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
-	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
-	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
-	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/107.0",
-	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Firefox/107.0",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+	"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 14.1; rv:121.0) Gecko/20100101 Firefox/121.0",
+	"Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
+	"Mozilla/5.0 (iPad; CPU OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
+	"Mozilla/5.0 (Android 14; Mobile; rv:121.0) Gecko/121.0 Firefox/121.0",
+}
+
+var searchQueries = []string{
+	"weather tomorrow",
+	"best restaurants near me",
+	"how to cook pasta",
+	"translate english to spanish",
+	"currency converter",
+	"movies playing now",
+	"stock market today",
+	"calculator online",
+	"periodic table of elements",
+	"world cup schedule",
+	"latest tech news",
+	"python tutorial for beginners",
+	"best travel destinations 2024",
+	"healthy dinner recipes",
+	"yoga for beginners",
+	"top 10 movies of all time",
+	"how to learn guitar",
+	"best books to read",
+	"history of the internet",
+	"space exploration news",
 }
 
 func getRandomUserAgent() string {
 	return userAgents[rand.Intn(len(userAgents))]
+}
+
+func getRandomSearchQuery() string {
+	return searchQueries[rand.Intn(len(searchQueries))]
 }
 
 // RealisticGoogleSearchHTML is a more convincing fake Google search results page.
@@ -110,7 +141,7 @@ const RealisticGoogleSearchHTML = `<!DOCTYPE html><html lang="en"><head><meta ch
 
 // WrapInJsonResponse wraps data in a fake JSON API response.
 func WrapInJsonResponse(data []byte) *http.Response {
-	jsonBody := fmt.Sprintf(`{"status":"ok","data":{"results":["elahe-tunnel-payload"],"session_id":"%s"}}`, base64.URLEncoding.EncodeToString(data))
+	jsonBody := fmt.Sprintf(`{"status":"ok","data":{"results":["%s"],"session_id":"%s"}}`, getRandomSearchQuery(), base64.URLEncoding.EncodeToString(data))
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),

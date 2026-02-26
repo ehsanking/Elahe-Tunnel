@@ -24,6 +24,7 @@ func StartServer(cfg *config.Config) {
 	mux.HandleFunc("/status", AuthMiddleware(JsonStatusHandler))
 	mux.HandleFunc("/logs", AuthMiddleware(LogsHandler))
 	mux.HandleFunc("/connections", AuthMiddleware(ConnectionsHandler))
+	mux.HandleFunc("/kill", AuthMiddleware(KillHandler))
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.WebPanelPort)
 	fmt.Printf("Web panel starting on http://%s\n", addr)

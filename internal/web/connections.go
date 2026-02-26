@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"html/template"
 	"net/http"
 	"time"
@@ -171,8 +172,28 @@ type ConnectionsPageData struct {
 	Connections []*config.ActiveConnection
 }
 
+type ConnectionJSON struct {
+	ID        string    `json:"id"`
+	ProxyName string    `json:"proxy_name"`
+	StartTime time.Time `json:"start_time"`
+}
+
 func ConnectionsHandler(w http.ResponseWriter, r *http.Request) {
 	connections := config.ListConnections()
+
+	if r.URL.Query().Get("json") == "true" {
+		var jsonConns []ConnectionJSON
+		for _, c := range connections {
+			jsonConns = append(jsonConns, ConnectionJSON{
+				ID:        c.ID,
+				ProxyName: c.ProxyName,
+				StartTime: c.StartTime,
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(jsonConns)
+		return
+	}
 
 	funcMap := template.FuncMap{
 		"since": func(t time.Time) string {
@@ -192,4 +213,27 @@ func ConnectionsHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logger.Error.Printf("Error executing connections template: %v", err)
 	}
+}
+
+func KillHandler(w http.ResponseWriter, r *http.Request) {
+	connID := r.URL.Query().Get("id")
+	if connID == "" {
+		http.Error(w, "Missing connection ID", http.StatusBadRequest)
+		return
+	}
+
+	conn, ok := config.ConnManager.Get(connID)
+	if !ok {
+		http.Error(w, "Connection not found", http.StatusNotFound)
+		return
+	}
+
+	// Close the smux stream. This will cause the io.Copy loops to exit.
+	if conn.Stream != nil {
+		conn.Stream.Close()
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Connection terminated"))
+	logger.Info.Printf("Web panel user terminated connection %s.", connID)
 }

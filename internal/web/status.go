@@ -101,6 +101,9 @@ const statusTemplateHTML = `
         .proto-udp { background-color: rgba(245, 158, 11, 0.1); color: var(--accent-warning); }
         .proto-dns { background-color: rgba(6, 182, 212, 0.1); color: var(--accent-info); }
 
+        .kill-btn { background-color: rgba(239, 68, 68, 0.1); color: var(--accent-danger); border: 1px solid rgba(239, 68, 68, 0.2); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600; transition: all 0.2s; }
+        .kill-btn:hover { background-color: var(--accent-danger); color: white; }
+
         /* Responsive */
         @media (max-width: 1024px) {
             .grid-2-1 { grid-template-columns: 1fr; }
@@ -276,6 +279,31 @@ const statusTemplateHTML = `
                             <td id="dns-rate" style="color: var(--accent-info);">0/s</td>
                             <td>-</td>
                             <td><span style="color: var(--accent-success); font-size: 0.85rem;"><i class="fa-solid fa-check-circle"></i> Active</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Active Connections Table -->
+        <div class="card" style="margin-top: 24px;">
+            <div class="card-header">
+                <div class="card-title">Recent Active Connections</div>
+                <a href="/connections" style="color: var(--accent-primary); font-size: 0.85rem; text-decoration: none; font-weight: 600;">View All <i class="fa-solid fa-arrow-right"></i></a>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Proxy Name</th>
+                            <th>Duration</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="connections-tbody">
+                        <tr>
+                            <td colspan="4" style="text-align: center; color: var(--text-secondary);">Loading connections...</td>
                         </tr>
                     </tbody>
                 </table>
@@ -496,6 +524,55 @@ const statusTemplateHTML = `
                     lastStats = data;
                 })
                 .catch(console.error);
+
+            // Fetch active connections
+            fetch('/connections?json=true')
+                .then(response => response.json())
+                .then(connections => {
+                    const tbody = document.getElementById('connections-tbody');
+                    if (!connections || connections.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">No active connections</td></tr>';
+                        return;
+                    }
+                    
+                    // Sort by newest first and take top 5 for dashboard
+                    connections.sort((a, b) => new Date(b.start_time) - new Date(a.start_time));
+                    const topConns = connections.slice(0, 5);
+                    
+                    let html = '';
+                    const now = new Date();
+                    topConns.forEach(conn => {
+                        const startTime = new Date(conn.start_time);
+                        const diffSecs = Math.floor((now - startTime) / 1000);
+                        
+                        let durationStr = '';
+                        if (diffSecs < 60) durationStr = diffSecs + 's';
+                        else if (diffSecs < 3600) durationStr = Math.floor(diffSecs/60) + 'm ' + (diffSecs%60) + 's';
+                        else durationStr = Math.floor(diffSecs/3600) + 'h ' + Math.floor((diffSecs%3600)/60) + 'm';
+                        
+                        html += '<tr>';
+                        html += '<td style="font-family: monospace; font-size: 0.85rem;">' + conn.id.substring(0, 16) + '...</td>';
+                        html += '<td>' + conn.proxy_name + '</td>';
+                        html += '<td>' + durationStr + '</td>';
+                        html += '<td><button class="kill-btn" onclick="killConnection(\'' + conn.id + '\')">Kill</button></td>';
+                        html += '</tr>';
+                    });
+                    tbody.innerHTML = html;
+                })
+                .catch(console.error);
+        }
+
+        function killConnection(id) {
+            if (confirm('Are you sure you want to terminate this connection?')) {
+                fetch('/kill?id=' + id, { method: 'POST' })
+                    .then(response => {
+                        if (response.ok) {
+                            updateStats(); // Refresh immediately
+                        } else {
+                            alert('Failed to kill connection.');
+                        }
+                    });
+            }
         }
 
         setInterval(updateStats, fetchInterval);
