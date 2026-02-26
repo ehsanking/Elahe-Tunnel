@@ -610,7 +610,15 @@ func getMuxSession(remoteIP string, port int, host string) (*smux.Session, error
 func manageControlSession(remoteIP string, key []byte, cfg *config.Config) {
 	// This function will now be the heart of the client.
 	// It will maintain the connection and handle commands from the server.
+	const (
+		baseBackoff    = 1 * time.Second
+		maxBackoff     = 60 * time.Second
+		stableDuration = 10 * time.Second
+	)
+	backoff := baseBackoff
+
 	for {
+		start := time.Now()
 		port := cfg.TunnelPort
 		if port == 0 {
 			port = 443
@@ -618,19 +626,29 @@ func manageControlSession(remoteIP string, key []byte, cfg *config.Config) {
 
 		session, err := getMuxSession(remoteIP, port, cfg.RemoteHost)
 		if err != nil {
-			logger.Error.Printf("Failed to establish control session: %v. Retrying in 10s...", err)
-			time.Sleep(10 * time.Second)
+			logger.Error.Printf("Failed to establish control session: %v. Retrying in %v...", err, backoff)
+			time.Sleep(backoff)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
 			continue
 		}
 
 		// Stream 0 is the control channel
 		controlStream, err := session.OpenStream()
 		if err != nil {
-			logger.Error.Printf("Failed to open control stream: %v. Retrying...", err)
+			logger.Error.Printf("Failed to open control stream: %v. Retrying in %v...", err, backoff)
 			session.Close()
-			time.Sleep(5 * time.Second)
+			time.Sleep(backoff)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
 			continue
 		}
+
+		logger.Info.Println("Control session established successfully.")
 
 		// Register proxies with the server
 		registerProxies(controlStream, cfg.Proxies)
@@ -642,7 +660,20 @@ func manageControlSession(remoteIP string, key []byte, cfg *config.Config) {
 		controlStream.Close()
 		session.Close()
 		logger.Info.Println("Control session closed. Reconnecting...")
-		time.Sleep(5 * time.Second)
+
+		// If the connection was stable for a while, reset backoff.
+		// Otherwise, treat it as a failure and back off.
+		if time.Since(start) > stableDuration {
+			backoff = baseBackoff
+			// Add a small delay even after a stable connection to prevent tight loops in edge cases
+			time.Sleep(1 * time.Second)
+		} else {
+			time.Sleep(backoff)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+		}
 	}
 }
 
