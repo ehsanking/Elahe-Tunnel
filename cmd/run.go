@@ -19,6 +19,10 @@ var runCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		foreground, _ := cmd.Flags().GetBool("foreground")
 
+		if foreground {
+			PrintBanner()
+		}
+
 		if !foreground && os.Getenv("ELAHE_DAEMON") != "1" {
 			// Check if already running
 			if _, err := os.Stat(pidFile); err == nil {

@@ -15,34 +15,30 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// ANSI Colors
+const (
+	ColorReset  = "\033[0m"
+	ColorRed    = "\033[31m"
+	ColorGreen  = "\033[32m"
+	ColorYellow = "\033[33m"
+	ColorBlue   = "\033[34m"
+	ColorCyan   = "\033[36m"
+	ColorWhite  = "\033[37m"
+)
+
 var setupCmd = &cobra.Command{
 	Use:   "setup [internal | external]",
-	Short: "Initial setup for the Elahe Tunnel.",
-	Long:  `Use 'setup' to configure the current machine as either an internal (relay) node inside a censored network or an external (exit) node with free internet access.`,
+	Short: "Simple setup for Elahe Tunnel",
+	Long:  `Quickly configure your server as an Internal (Iran) or External (Foreign) node.`,
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
+		PrintBanner()
+
 		var setupType string
 		if len(args) > 0 {
 			setupType = args[0]
 		} else {
-			// Interactive mode
-			reader := bufio.NewReader(os.Stdin)
-			fmt.Println("Please choose the node type:")
-			fmt.Println("1. Internal (Relay Node - Inside Censored Network)")
-			fmt.Println("2. External (Exit Node - Free Internet Access)")
-			fmt.Print("Enter choice (1/2 or internal/external): ")
-			input, _ := reader.ReadString('\n')
-			input = strings.TrimSpace(strings.ToLower(input))
-
-			switch input {
-			case "1", "internal":
-				setupType = "internal"
-			case "2", "external":
-				setupType = "external"
-			default:
-				fmt.Printf("Error: Invalid choice '%s'. Please use '1' (internal) or '2' (external).\n", input)
-				os.Exit(1)
-			}
+			setupType = askNodeType()
 		}
 
 		switch setupType {
@@ -51,305 +47,191 @@ var setupCmd = &cobra.Command{
 		case "external":
 			setupExternal()
 		default:
-			fmt.Printf("Error: Invalid setup type '%s'. Please use 'internal' or 'external'.\n", setupType)
+			fmt.Printf("%sError: Invalid setup type '%s'. Use 'internal' or 'external'.%s\n", ColorRed, setupType, ColorReset)
 			os.Exit(1)
 		}
 	},
 }
 
-func setupExternal() {
+func PrintBanner() {
+	fmt.Println(ColorCyan + "=========================================" + ColorReset)
+	fmt.Println(ColorCyan + "   Elahe Tunnel - Simple Setup Wizard    " + ColorReset)
+	fmt.Println(ColorCyan + "=========================================" + ColorReset)
+	fmt.Println()
+}
+
+func askNodeType() string {
 	reader := bufio.NewReader(os.Stdin)
+	fmt.Println(ColorYellow + "Choose your server type:" + ColorReset)
+	fmt.Println("1. " + ColorGreen + "External" + ColorReset + " (Foreign Server - Exit Node)")
+	fmt.Println("2. " + ColorBlue + "Internal" + ColorReset + " (Iran Server - Relay Node)")
+	fmt.Print("\nEnter choice (1/2): ")
+	
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
 
-	fmt.Print("Enter the port for the tunnel to listen on (default 443): ")
-	portStr, _ := reader.ReadString('\n')
-	portStr = strings.TrimSpace(portStr)
-	tunnelPort := 443
-	if portStr != "" {
-		tunnelPort, _ = strconv.Atoi(portStr)
+	if input == "1" || strings.ToLower(input) == "external" {
+		return "external"
+	} else if input == "2" || strings.ToLower(input) == "internal" {
+		return "internal"
 	}
+	
+	fmt.Println(ColorRed + "Invalid choice. Defaulting to External." + ColorReset)
+	return "external"
+}
 
-	// Check and free port
-	checkAndFreePort(tunnelPort)
-
-	// Check if config already exists
-	if _, err := os.Stat(config.ConfigFileName); err == nil {
-		fmt.Printf("\n⚠️  WARNING: A configuration file (%s) already exists!\n", config.ConfigFileName)
-		fmt.Println("Running setup again will OVERWRITE the existing configuration and GENERATE A NEW KEY.")
-		fmt.Println("Any clients using the old key will lose connection.")
-		fmt.Print("\nAre you sure you want to continue? (y/N): ")
-		reader := bufio.NewReader(os.Stdin)
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(strings.ToLower(input))
-		if input != "y" && input != "yes" {
-			fmt.Println("Setup aborted.")
-			os.Exit(0)
+func setupExternal() {
+	fmt.Println("\n" + ColorGreen + "--- External Server Setup ---" + ColorReset)
+	
+	// Port selection
+	port := 443
+	fmt.Printf("Enter Tunnel Port (default %d): ", port)
+	reader := bufio.NewReader(os.Stdin)
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	if input != "" {
+		p, err := strconv.Atoi(input)
+		if err == nil {
+			port = p
 		}
 	}
 
-	fmt.Println("Setting up as an external (foreign) server...")
+	checkAndFreePort(port)
 
-	// Generate connection key
-	key, err := crypto.GenerateKey()
-	if err != nil {
-		fmt.Println("Error generating key:", err)
-		os.Exit(1)
-	}
+	// Generate Key
+	key, _ := crypto.GenerateKey()
 	encodedKey := crypto.EncodeKeyToBase64(key)
 
-	// Generate TLS certificate
-	certPEM, keyPEM, err := crypto.GenerateTLSConfig()
-	if err != nil {
-		fmt.Println("Error generating TLS certificate:", err)
-		os.Exit(1)
-	}
+	// Generate Certs
+	certPEM, keyPEM, _ := crypto.GenerateTLSConfig()
+	os.WriteFile("cert.pem", certPEM, 0644)
+	os.WriteFile("key.pem", keyPEM, 0600)
 
-	// Save TLS files
-	if err := os.WriteFile("cert.pem", certPEM, 0644); err != nil {
-		fmt.Println("Error saving cert.pem:", err)
-		os.Exit(1)
-	}
-	if err := os.WriteFile("key.pem", keyPEM, 0600); err != nil {
-		fmt.Println("Error saving key.pem:", err)
-		os.Exit(1)
-	}
-
-	// Save configuration
+	// Save Config
 	cfg := &config.Config{
 		NodeType:      "external",
 		ConnectionKey: encodedKey,
-		TunnelPort:    tunnelPort,
+		TunnelPort:    port,
 	}
-	if err := config.SaveConfig(cfg); err != nil {
-		fmt.Println("Error saving configuration:", err)
-		os.Exit(1)
-	}
+	config.SaveConfig(cfg)
 
-	fmt.Println("✅ External server setup complete.")
-	fmt.Println("✅ TLS certificate and key saved to cert.pem and key.pem.")
-	fmt.Println("\n🔑 Your connection key is:")
-	fmt.Printf("\n    %s\n\n", encodedKey)
-	fmt.Println("Save this key. You will need it to connect your internal server.")
+	fmt.Println("\n" + ColorGreen + "✅ Setup Complete!" + ColorReset)
+	fmt.Println(ColorYellow + "--------------------------------------------------" + ColorReset)
+	fmt.Println("Use this KEY on your Internal server:")
+	fmt.Printf("\n" + ColorCyan + "%s" + ColorReset + "\n\n", encodedKey)
+	fmt.Println(ColorYellow + "--------------------------------------------------" + ColorReset)
+	
+	// Auto-start suggestion
+	fmt.Println("Starting server now...")
+	runServer()
 }
 
 func setupInternal() {
-	// Check if config already exists
-	if _, err := os.Stat(config.ConfigFileName); err == nil {
-		fmt.Printf("\n⚠️  WARNING: A configuration file (%s) already exists!\n", config.ConfigFileName)
-		fmt.Println("Running setup again will OVERWRITE the existing configuration.")
-		fmt.Print("\nAre you sure you want to continue? (y/N): ")
-		reader := bufio.NewReader(os.Stdin)
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(strings.ToLower(input))
-		if input != "y" && input != "yes" {
-			fmt.Println("Setup aborted.")
-			os.Exit(0)
-		}
-	}
-
-	fmt.Println("Setting up as an internal (Iran) server...")
-
+	fmt.Println("\n" + ColorBlue + "--- Internal Server Setup ---" + ColorReset)
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Print("Enter the IP address of your external server: ")
+	// External IP
+	fmt.Print("Enter External Server IP: ")
 	host, _ := reader.ReadString('\n')
 	host = strings.TrimSpace(host)
+	if host == "" {
+		fmt.Println(ColorRed + "IP is required!" + ColorReset)
+		os.Exit(1)
+	}
 
-	fmt.Print("Enter the connection key: ")
+	// Connection Key
+	fmt.Print("Enter Connection Key (leave empty for default): ")
 	key, _ := reader.ReadString('\n')
 	key = strings.TrimSpace(key)
 
-	fmt.Print("Enter the port of your external server (default 443): ")
-	pStr, _ := reader.ReadString('\n')
-	pStr = strings.TrimSpace(pStr)
-	tunnelPort := 443
-	if pStr != "" {
-		tunnelPort, _ = strconv.Atoi(pStr)
+	// Port
+	port := 443
+	fmt.Printf("Enter External Server Port (default %d): ", port)
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	if input != "" {
+		p, err := strconv.Atoi(input)
+		if err == nil {
+			port = p
+		}
+	}
+
+	// Simple Forwarding Rule
+	fmt.Println("\n" + ColorYellow + "Configure Forwarding (Traffic from Iran -> Foreign)" + ColorReset)
+	
+	localPort := 8080
+	fmt.Printf("Local Port to Listen on (default %d): ", localPort)
+	input, _ = reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	if input != "" {
+		p, err := strconv.Atoi(input)
+		if err == nil {
+			localPort = p
+		}
+	}
+
+	remotePort := 80
+	fmt.Printf("Remote Port to Forward to (default %d): ", remotePort)
+	input, _ = reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+	if input != "" {
+		p, err := strconv.Atoi(input)
+		if err == nil {
+			remotePort = p
+		}
 	}
 
 	cfg := &config.Config{
 		NodeType:      "internal",
 		ConnectionKey: key,
 		RemoteHost:    host,
-		TunnelPort:    tunnelPort,
+		TunnelPort:    port,
+		Proxies: []config.ProxyConfig{
+			{
+				Name:       "default-rule",
+				Type:       "tcp",
+				RemotePort: remotePort,
+				LocalIP:    "0.0.0.0",
+				LocalPort:  localPort,
+			},
+		},
 	}
+	config.SaveConfig(cfg)
 
-	fmt.Print("Do you want to enable the Web Panel? (y/N): ")
-	enableWeb, _ := reader.ReadString('\n')
-	enableWeb = strings.TrimSpace(strings.ToLower(enableWeb))
+	fmt.Println("\n" + ColorGreen + "✅ Setup Complete!" + ColorReset)
+	fmt.Printf("Traffic on port %d will be forwarded to remote port %d\n", localPort, remotePort)
+	
+	fmt.Println("Starting client now...")
+	runClient()
+}
 
-	if enableWeb == "y" || enableWeb == "yes" {
-		cfg.WebPanelEnabled = true
-
-		fmt.Print("Enter Web Panel Port (default 3000): ")
-		portStr, _ := reader.ReadString('\n')
-		portStr = strings.TrimSpace(portStr)
-		if portStr == "" {
-			cfg.WebPanelPort = 3000
-		} else {
-			port, err := strconv.Atoi(portStr)
-			if err != nil {
-				fmt.Println("Invalid port, using default 3000")
-				cfg.WebPanelPort = 3000
-			} else {
-				cfg.WebPanelPort = port
-			}
-		}
-
-		fmt.Print("Enter Web Panel Username (default: admin): ")
-		user, _ := reader.ReadString('\n')
-		user = strings.TrimSpace(user)
-		if user == "" {
-			cfg.WebPanelUser = "admin"
-		} else {
-			cfg.WebPanelUser = user
-		}
-
-		for {
-			fmt.Print("Enter Web Panel Password (min 8 chars, 1 uppercase, 1 number): ")
-			pass, _ := reader.ReadString('\n')
-			pass = strings.TrimSpace(pass)
-			
-			if len(pass) < 8 {
-				fmt.Println("Password must be at least 8 characters long.")
-				continue
-			}
-			
-			hasUpper := false
-			hasNumber := false
-			for _, char := range pass {
-				if char >= 'A' && char <= 'Z' {
-					hasUpper = true
-				}
-				if char >= '0' && char <= '9' {
-					hasNumber = true
-				}
-			}
-			
-			if !hasUpper || !hasNumber {
-				fmt.Println("Password must contain at least one uppercase letter and one number.")
-				continue
-			}
-			
-			cfg.WebPanelPass = pass
-			break
-		}
-
-		fmt.Print("Do you want to enable Two-Factor Authentication (2FA)? (y/N): ")
-		enable2FA, _ := reader.ReadString('\n')
-		enable2FA = strings.TrimSpace(strings.ToLower(enable2FA))
-
-		if enable2FA == "y" || enable2FA == "yes" {
-			secret, err := crypto.GenerateTOTPSecret()
-			if err != nil {
-				fmt.Printf("Failed to generate 2FA secret: %v\n", err)
-			} else {
-				cfg.WebPanel2FASecret = secret
-				fmt.Println("\n========================================================")
-				fmt.Println("✅ 2FA Enabled!")
-				fmt.Printf("Your 2FA Secret Key is: %s\n", secret)
-				fmt.Println("Please add this key to your Authenticator app (Google Authenticator, Authy, etc.).")
-				fmt.Println("========================================================")
-			}
-		}
+func checkAndFreePort(port int) {
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err == nil {
+		ln.Close()
+		return
 	}
-
-	// Configure proxies
-	cfg.Proxies = []config.ProxyConfig{}
-	for {
-		fmt.Print("\n--- Add a New Proxy Forwarding Rule ---\n")
-
-		fmt.Print("Proxy Name (e.g., 'ssh-service', 'web-app'): ")
-		proxyName, _ := reader.ReadString('\n')
-		proxyName = strings.TrimSpace(proxyName)
-
-		fmt.Print("Remote Port (public port on the external server): ")
-		remotePortStr, _ := reader.ReadString('\n')
-		remotePort, err := strconv.Atoi(strings.TrimSpace(remotePortStr))
-		if err != nil {
-			fmt.Println("Invalid port number.")
-			continue
-		}
-
-		fmt.Print("Local IP (IP of the service on your local network, default 127.0.0.1): ")
-		localIP, _ := reader.ReadString('\n')
-		localIP = strings.TrimSpace(localIP)
-		if localIP == "" {
-			localIP = "127.0.0.1"
-		}
-
-		fmt.Print("Local Port (port of the local service): ")
-		localPortStr, _ := reader.ReadString('\n')
-		localPort, err := strconv.Atoi(strings.TrimSpace(localPortStr))
-		if err != nil {
-			fmt.Println("Invalid port number.")
-			continue
-		}
-
-		newProxy := config.ProxyConfig{
-			Name:       proxyName,
-			Type:       "tcp", // For now, we only support TCP in the setup
-			RemotePort: remotePort,
-			LocalIP:    localIP,
-			LocalPort:  localPort,
-		}
-		cfg.Proxies = append(cfg.Proxies, newProxy)
-
-		fmt.Print("Add another proxy? (y/N): ")
-		another, _ := reader.ReadString('\n')
-		if strings.TrimSpace(strings.ToLower(another)) != "y" {
-			break
-		}
-	}
-
-	if err := config.SaveConfig(cfg); err != nil {
-		fmt.Println("Error saving configuration:", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("\n✅ Internal server setup complete. The tunnel will now attempt to connect.")
+	
+	fmt.Printf(ColorYellow + "Port %d is busy. Freeing it...\n" + ColorReset, port)
+	exec.Command("fuser", "-k", fmt.Sprintf("%d/tcp", port)).Run()
+	time.Sleep(1 * time.Second)
 }
 
 func init() {
 	rootCmd.AddCommand(setupCmd)
 }
 
-func checkAndFreePort(port int) {
-	fmt.Printf("Checking port %d availability...\n", port)
+// Helpers to run immediately
+func runServer() {
+	cmd := exec.Command(os.Args[0], "run")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Run()
+}
 
-	// Try to listen on port
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err == nil {
-		ln.Close()
-		fmt.Printf("✅ Port %d is free.\n", port)
-		return
-	}
-
-	fmt.Printf("⚠️  Port %d is busy. Attempting to free it...\n", port)
-
-	// Try to kill process using port
-	cmd := exec.Command("fuser", "-k", fmt.Sprintf("%d/tcp", port))
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("Failed to kill process using fuser: %v. Trying lsof...\n", err)
-		
-		out, err := exec.Command("lsof", "-t", fmt.Sprintf("-i:%d", port)).Output()
-		if err == nil && len(out) > 0 {
-			pid := strings.TrimSpace(string(out))
-			if pid != "" {
-				exec.Command("kill", "-9", pid).Run()
-			}
-		}
-	}
-
-	// Wait a bit
-	time.Sleep(2 * time.Second)
-
-	// Check again
-	ln, err = net.Listen("tcp", fmt.Sprintf(":%d", port))
-	if err == nil {
-		ln.Close()
-		fmt.Printf("✅ Port %d has been freed.\n", port)
-	} else {
-		fmt.Printf("❌ Failed to free port %d. Please stop the service manually.\n", port)
-		os.Exit(1)
-	}
+func runClient() {
+	cmd := exec.Command(os.Args[0], "run")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Run()
 }
