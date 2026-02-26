@@ -14,12 +14,42 @@ import (
 	"github.com/ehsanking/elahe-tunnel/internal/crypto"
 	"github.com/ehsanking/elahe-tunnel/internal/logger"
 	"github.com/ehsanking/elahe-tunnel/internal/masquerade"
-	"github.com/ehsanking/elahe-tunnel/internal/stats"
 	"github.com/gorilla/websocket"
 	"github.com/xtaci/smux"
+	"encoding/json"
 	"github.com/pion/dtls/v2"
 	"golang.org/x/time/rate"
 )
+
+// ClientSession represents a connected internal client and its associated resources.
+
+
+
+
+type ClientSession struct {
+	session      *smux.Session
+	proxies      []config.ProxyConfig
+	listeners    map[int]net.Listener
+	lastSeen     time.Time
+	lock         sync.Mutex
+	connections  map[string]*config.ActiveConnection // Connections belonging to this client
+}
+
+func (cs *ClientSession) addConnection(conn *config.ActiveConnection) {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+	cs.connections[conn.ID] = conn
+}
+
+func (cs *ClientSession) removeConnection(id string) {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+	delete(cs.connections, id)
+}
+
+// Global map to track active client sessions.
+var clientSessions = make(map[*smux.Session]*ClientSession)
+var sessionsLock sync.RWMutex
 
 // RunServer starts the external node server.
 func RunServer(cfg *config.Config) error {
@@ -41,6 +71,9 @@ func RunServer(cfg *config.Config) error {
 
 	wsHandler := http.HandlerFunc(handleWebSocket(key))
 	http.Handle("/search/results", recoveryMiddleware(wsHandler))
+
+	killHandler := http.HandlerFunc(handleKillConnection)
+	http.Handle("/kill", recoveryMiddleware(killHandler))
 
 	tunnelHandler := http.HandlerFunc(handleTunnelRequest(key))
 	http.Handle("/", recoveryMiddleware(limitMiddleware(limiter, tunnelHandler)))
@@ -89,6 +122,7 @@ func handleWebSocket(key []byte) http.HandlerFunc {
 			return
 		}
 
+		logger.Info.Printf("WebSocket upgrade successful for client %s", r.RemoteAddr)
 		wsConn := NewWebSocketConn(conn)
 		session, err := smux.Server(wsConn, SmuxConfig())
 		if err != nil {
@@ -97,15 +131,178 @@ func handleWebSocket(key []byte) http.HandlerFunc {
 		}
 		defer session.Close()
 
-		for {
-			stream, err := session.AcceptStream()
-			if err != nil {
-				break
-			}
+		// The first stream is the control channel.
+		controlStream, err := session.AcceptStream()
+		if err != nil {
+			logger.Error.Printf("Failed to accept control stream: %v", err)
+			return
+		}
 
-			go handleSmuxStream(stream, key)
+		client := NewClientSession(session)
+		AddClientSession(client)
+		defer RemoveClientSession(client)
+
+		// Handle the control channel. This will block until the client disconnects.
+		handleControlStream(controlStream, client)
+	}
+}
+
+func NewClientSession(session *smux.Session) *ClientSession {
+	return &ClientSession{
+		session:     session,
+		listeners:   make(map[int]net.Listener),
+		lastSeen:    time.Now(),
+		connections: make(map[string]*config.ActiveConnection),
+	}
+}
+
+func AddClientSession(client *ClientSession) {
+	sessionsLock.Lock()
+	defer sessionsLock.Unlock()
+	clientSessions[client.session] = client
+	logger.Info.Printf("Client session %s registered.", client.session.RemoteAddr())
+}
+
+func RemoveClientSession(client *ClientSession) {
+	sessionsLock.Lock()
+	defer sessionsLock.Unlock()
+	delete(clientSessions, client.session)
+	// Important: Close all associated listeners when the client disconnects.
+	for port, listener := range client.listeners {
+		listener.Close()
+		logger.Info.Printf("Closed listener on port %d for disconnected client %s.", port, client.session.RemoteAddr())
+	}
+	logger.Info.Printf("Client session %s deregistered.", client.session.RemoteAddr())
+}
+
+func handleControlStream(stream *smux.Stream, client *ClientSession) {
+	defer RemoveClientSession(client) // Ensure cleanup happens when this function exits.
+
+	for {
+		msg, err := ReadControlMessage(stream)
+		if err != nil {
+			if err == io.EOF {
+				logger.Info.Printf("Client %s closed the control stream.", client.session.RemoteAddr())
+			} else {
+				logger.Error.Printf("Error reading control message from %s: %v", client.session.RemoteAddr(), err)
+			}
+			return
+		}
+
+		switch msg.Command {
+		case CmdRegisterProxies:
+			var payload RegisterProxiesPayload
+			err := json.Unmarshal(msg.Payload, &payload)
+			if err != nil {
+				logger.Error.Printf("Failed to unmarshal register_proxies payload: %v", err)
+				continue
+			}
+			client.lock.Lock()
+			client.proxies = payload.Proxies
+			client.lock.Unlock()
+			startProxyListeners(client, stream)
+
+		default:
+			logger.Info.Printf("Received unknown command '%s' from client %s.", msg.Command, client.session.RemoteAddr())
 		}
 	}
+}
+
+func startProxyListeners(client *ClientSession, controlStream *smux.Stream) {
+	client.lock.Lock()
+	defer client.lock.Unlock()
+
+	for _, proxy := range client.proxies {
+		go func(p config.ProxyConfig) {
+			addr := fmt.Sprintf(":%d", p.RemotePort)
+			listener, err := net.Listen("tcp", addr)
+			if err != nil {
+				logger.Error.Printf("Failed to start listener for proxy '%s' on port %d: %v", p.Name, p.RemotePort, err)
+				// Send an error back to the client.
+				errMsg := fmt.Sprintf("Failed to start listener for proxy '%s' on port %d: %v", p.Name, p.RemotePort, err)
+				WriteControlMessage(controlStream, CmdRegistrationFailed, errMsg)
+				return
+			}
+			client.listeners[p.RemotePort] = listener
+			logger.Info.Printf("Started listener for proxy '%s' on %s for client %s", p.Name, addr, client.session.RemoteAddr())
+
+			for {
+				conn, err := listener.Accept()
+				if err != nil {
+					// If the listener was closed, we can just exit the loop.
+					logger.Info.Printf("Listener for proxy '%s' on port %d stopped: %v", p.Name, p.RemotePort, err)
+					return
+				}
+				logger.Info.Printf("Accepted new public connection for proxy '%s' from %s", p.Name, conn.RemoteAddr())
+				go handlePublicConnection(conn, client, p.Name)
+			}
+		}(proxy)
+	}
+}
+
+func handlePublicConnection(publicConn net.Conn, client *ClientSession, proxyName string) {
+	defer publicConn.Close()
+
+	// 1. Command the client to prepare for a new connection.
+	// We need to find the control stream for this client.
+	// This is a simplification; in a real-world scenario, we'd have a more direct way to access it.
+	// For now, we'll assume the client is well-behaved and the session is active.
+
+	// This is a conceptual placeholder. The actual implementation requires passing the control stream
+	// down to this function, or having a way to retrieve it from the ClientSession.
+	// Let's assume for now we can open a new stream that the client will interpret as a data channel.
+
+	// 2. Open a new data stream.
+	dataStream, err := client.session.OpenStream()
+	if err != nil {
+		logger.Error.Printf("Failed to open new data stream for proxy '%s': %v", proxyName, err)
+		return
+	}
+	defer dataStream.Close()
+
+	// Register the new connection.
+	connID := fmt.Sprintf("%s-%d", client.session.RemoteAddr(), dataStream.ID())
+	activeConn := &config.ActiveConnection{
+		ID:        connID,
+		ProxyName: proxyName,
+		Client:    client,
+		Stream:    dataStream,
+		StartTime: time.Now(),
+	}
+	config.ConnManager.Add(activeConn)
+	client.addConnection(activeConn)
+	defer config.ConnManager.Remove(connID)
+	defer client.removeConnection(connID)
+
+	// 3. Send the proxy name so the client knows where to connect.
+	// We'll use a simple length-prefixed format.
+	proxyNameBytes := []byte(proxyName)
+	header := []byte{byte(len(proxyNameBytes))}
+	_, err = dataStream.Write(header)
+	if err != nil {
+		return
+	}
+	_, err = dataStream.Write(proxyNameBytes)
+	if err != nil {
+		return
+	}
+
+	logger.Info.Printf("Opened data stream %d for proxy '%s'. Tunnelling data.", dataStream.ID(), proxyName)
+
+	// 4. Proxy data.
+	done := make(chan struct{})
+	go func() {
+		io.Copy(dataStream, publicConn)
+		close(done)
+	}()
+
+	go func() {
+		io.Copy(publicConn, dataStream)
+		close(done)
+	}()
+
+	<-done
+	logger.Info.Printf("Closed data stream %d for proxy '%s'.", dataStream.ID(), proxyName)
 }
 
 func handleSmuxStream(stream *smux.Stream, key []byte) {
@@ -128,12 +325,15 @@ func handleSmuxStream(stream *smux.Stream, key []byte) {
 
 	destination := string(destBuf)
 	
+	logger.Info.Printf("Stream from %s asking to connect to destination: %s", stream.RemoteAddr(), destination)
 	// Dial target
 	targetConn, err := net.DialTimeout("tcp", destination, 10*time.Second)
 	if err != nil {
-		return
-	}
+			logger.Error.Printf("Failed to connect to destination %s for stream %s: %v", destination, stream.RemoteAddr(), err)
+			return
+		}
 	defer targetConn.Close()
+	logger.Info.Printf("Successfully connected to %s for stream %s. Starting proxy.", destination, stream.RemoteAddr())
 
 	// Tunnel data
 	done := make(chan struct{})
@@ -237,7 +437,7 @@ func handleDtlsConnection(conn net.Conn, key []byte) {
 		}
 		destination := string(parts[0])
 		payload := parts[1]
-		stats.AddUdpBytesIn(uint64(len(payload)))
+
 
 		targetConn, ok := udpConns[destination]
 		if !ok {
@@ -269,7 +469,7 @@ func handleDtlsConnection(conn net.Conn, key []byte) {
 					if werr != nil {
 						return
 					}
-					stats.AddUdpBytesOut(uint64(len(response)))
+
 				}
 			}(destination, targetConn)
 		}
@@ -309,7 +509,7 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 			return
 		}
 
-		stats.AddTcpBytesIn(uint64(len(decrypted)))
+
 
 		// Expected format: SessionID|Destination|Payload
 		parts := bytes.SplitN(decrypted, []byte("|"), 3)
@@ -427,7 +627,7 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 				http.Error(w, "Internal server error", http.StatusInternalServerError)
 				return
 			}
-			stats.AddTcpBytesOut(uint64(len(encryptedResp)))
+
 			masquerade.WrapInRandomHttpResponse(encryptedResp).Write(w)
 		} else {
 			// No data read (timeout or EOF with 0 bytes)
@@ -439,13 +639,34 @@ func handleTunnelRequest(key []byte) http.HandlerFunc {
 	}
 }
 
+func handleKillConnection(w http.ResponseWriter, r *http.Request) {
+	connID := r.URL.Query().Get("id")
+	if connID == "" {
+		http.Error(w, "Missing connection ID", http.StatusBadRequest)
+		return
+	}
+
+	conn, ok := config.ConnManager.Get(connID)
+	if !ok {
+		http.Error(w, "Connection not found", http.StatusNotFound)
+		return
+	}
+
+	// Close the smux stream. This will cause the io.Copy loops to exit.
+	conn.Stream.Close()
+
+	// The defer calls in handlePublicConnection will handle removal from the maps.
+
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "Connection %s terminated.", connID)
+	logger.Info.Printf("Web panel user terminated connection %s.", connID)
+}
+
 func handleDnsRequest(w http.ResponseWriter, query []byte, key []byte) {
-	stats.AddDnsQuery()
 	// Forward to a real DNS server
 	dnsServer := "8.8.8.8:53"
 	conn, err := net.Dial("udp", dnsServer)
 	if err != nil {
-		stats.AddDnsError()
 		http.Error(w, "DNS server unreachable", http.StatusServiceUnavailable)
 		return
 	}
@@ -454,7 +675,6 @@ func handleDnsRequest(w http.ResponseWriter, query []byte, key []byte) {
 	conn.SetDeadline(time.Now().Add(5 * time.Second))
 	_, err = conn.Write(query)
 	if err != nil {
-		stats.AddDnsError()
 		http.Error(w, "Failed to write to DNS server", http.StatusServiceUnavailable)
 		return
 	}
@@ -462,7 +682,6 @@ func handleDnsRequest(w http.ResponseWriter, query []byte, key []byte) {
 	resp := make([]byte, 512)
 	n, err := conn.Read(resp)
 	if err != nil {
-		stats.AddDnsError()
 		http.Error(w, "Failed to read from DNS server", http.StatusServiceUnavailable)
 		return
 	}

@@ -87,7 +87,22 @@ Login with the credentials set during setup.
 
 ## 🔧 Configuration
 
-Configuration is stored in `search_tunnel_config.json`. You can modify it manually or use the `setup` command.
+Configuration is stored in `search_tunnel_config.json`. While the `setup` command handles initial configuration, you can manually edit this file to fine-tune settings, such as enabling the web panel.
+
+**Example `search_tunnel_config.json` for an Internal Node:**
+```json
+{
+  "node_type": "internal",
+  "remote_host": "YOUR_SERVER_IP",
+  "connection_key": "YOUR_SHARED_SECRET_KEY",
+  "web_panel_enabled": true,
+  "web_panel_port": 8080,
+  "web_panel_user": "admin",
+  "web_panel_pass": "your_secure_password"
+}
+```
+
+Below is a description of the key configuration options:
 
 | Key | Description |
 | :--- | :--- |

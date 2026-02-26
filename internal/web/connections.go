@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ehsanking/elahe-tunnel/internal/config"
 	"github.com/ehsanking/elahe-tunnel/internal/logger"
-	"github.com/ehsanking/elahe-tunnel/internal/stats"
 )
 
 const connectionsTemplateHTML = `
@@ -100,15 +100,30 @@ const connectionsTemplateHTML = `
         </div>
         
         <div class="table-container">
+	    <style>
+		.kill-btn {
+		    background-color: #ef4444;
+		    color: white;
+		    border: none;
+		    padding: 6px 12px;
+		    border-radius: 6px;
+		    cursor: pointer;
+		    font-size: 0.8rem;
+		}
+		.kill-btn:hover {
+		    background-color: #dc2626;
+		}
+	    </style>
             <table>
                 <thead>
                     <tr>
                         <th>ID</th>
                         <th>Protocol</th>
-                        <th>Source</th>
-                        <th>Destination</th>
+                        <th>Proxy Name</th>
+                        <th>Client</th>
                         <th>Start Time</th>
                         <th>Duration</th>
+			<th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -120,6 +135,7 @@ const connectionsTemplateHTML = `
                         <td>{{.Dst}}</td>
                         <td>{{.StartTime.Format "15:04:05"}}</td>
                         <td>{{since .StartTime}}</td>
+			<td><button class="kill-btn" data-id="{{.ID}}">Kill</button></td>
                     </tr>
                     {{else}}
                     <tr>
@@ -130,16 +146,33 @@ const connectionsTemplateHTML = `
             </table>
         </div>
     </div>
+    <script>
+        document.addEventListener('click', function(e) {
+            if (e.target && e.target.classList.contains('kill-btn')) {
+                const connId = e.target.getAttribute('data-id');
+                if (confirm('Are you sure you want to terminate connection ' + connId + '?')) {
+                    fetch('/kill?id=' + connId, { method: 'POST' })
+                        .then(response => {
+                            if (response.ok) {
+                                location.reload();
+                            } else {
+                                alert('Failed to kill connection.');
+                            }
+                        });
+                }
+            }
+        });
+    </script>
 </body>
 </html>
 `
 
 type ConnectionsPageData struct {
-	Connections []stats.ConnectionInfo
+	Connections []*config.ActiveConnection
 }
 
 func ConnectionsHandler(w http.ResponseWriter, r *http.Request) {
-	connections := stats.GetActiveConnectionsList()
+	connections := config.ListConnections()
 
 	funcMap := template.FuncMap{
 		"since": func(t time.Time) string {

@@ -3,9 +3,75 @@ package config
 import (
 	"encoding/json"
 	"os"
+	"time"
+
+	"github.com/xtaci/smux"
+	"sync"
 )
 
+// ActiveConnection represents a single, trackable data stream.
+type ActiveConnection struct {
+	ID        string
+	ProxyName string
+	Client    interface{} // Using interface{} to avoid import cycle
+	Stream    *smux.Stream
+	StartTime time.Time
+}
+
+// ConnectionManager tracks all active connections globally.
+type ConnectionManager struct {
+	connections map[string]*ActiveConnection
+	lock        sync.RWMutex
+}
+
+// Global instance of the connection manager.
+var ConnManager = &ConnectionManager{
+	connections: make(map[string]*ActiveConnection),
+}
+
+func (cm *ConnectionManager) Add(conn *ActiveConnection) {
+	cm.lock.Lock()
+	defer cm.lock.Unlock()
+	cm.connections[conn.ID] = conn
+}
+
+func (cm *ConnectionManager) Remove(id string) {
+	cm.lock.Lock()
+	defer cm.lock.Unlock()
+	delete(cm.connections, id)
+}
+
+func (cm *ConnectionManager) Get(id string) (*ActiveConnection, bool) {
+	cm.lock.RLock()
+	defer cm.lock.RUnlock()
+	conn, ok := cm.connections[id]
+	return conn, ok
+}
+
+func ListConnections() []*ActiveConnection {
+	return ConnManager.List()
+}
+
+func (cm *ConnectionManager) List() []*ActiveConnection {
+	cm.lock.RLock()
+	defer cm.lock.RUnlock()
+	conns := make([]*ActiveConnection, 0, len(cm.connections))
+	for _, conn := range cm.connections {
+		conns = append(conns, conn)
+	}
+	return conns
+}
+
 const ConfigFileName = "search_tunnel_config.json"
+
+// ProxyConfig defines a single port forwarding rule.
+type ProxyConfig struct {
+	Name       string `json:"name"`
+	Type       string `json:"type"` // e.g., "tcp", "udp"
+	RemotePort int    `json:"remote_port"`
+	LocalIP    string `json:"local_ip"`
+	LocalPort  int    `json:"local_port"`
+}
 
 // Config represents the application's configuration.
 type Config struct {
@@ -23,8 +89,8 @@ type Config struct {
 	WebPanelPass       string `json:"web_panel_pass,omitempty"`
 	WebPanelPort       int    `json:"web_panel_port,omitempty"`
 	WebPanel2FASecret  string `json:"web_panel_2fa_secret,omitempty"`
-	LocalPort          int    `json:"local_port,omitempty"`
-	TunnelPort         int    `json:"tunnel_port,omitempty"`
+	TunnelPort         int           `json:"tunnel_port,omitempty"`
+	Proxies            []ProxyConfig `json:"proxies,omitempty"`
 }
 
 // SaveConfig saves the given configuration to the config file.

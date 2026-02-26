@@ -52,7 +52,7 @@ func RunClient(cfg *config.Config) error {
 	// Create a custom dialer to resolve the remote host through the tunnel itself
 	netDialer := &net.Dialer{
 		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
+		KeepAlive: 15 * time.Second, // More aggressive keep-alive
 	}
 
 	// Create a shared HTTP client with a custom transport and QoS
@@ -98,28 +98,8 @@ func RunClient(cfg *config.Config) error {
 		go RunUdpProxy(9091, httpClient, cfg.RemoteHost, remoteIP, key, cfg)
 	}
 
-	// Start Tunnel Listener
-	if cfg.LocalPort > 0 {
-		go func() {
-			addr := fmt.Sprintf("0.0.0.0:%d", cfg.LocalPort)
-			fmt.Printf("Internal tunnel listening on %s -> %s\n", addr, cfg.DestinationHost)
-			localListener, err := net.Listen("tcp", addr)
-			if err != nil {
-				fmt.Printf("Failed to listen on local port %d: %v\n", cfg.LocalPort, err)
-				return
-			}
-			defer localListener.Close()
-
-			for {
-				localConn, err := localListener.Accept()
-				if err != nil {
-					fmt.Printf("Failed to accept local connection: %v\n", err)
-					continue
-				}
-				go handleClientConnection(localConn, httpClient, remoteIP, key, cfg, cfg.DestinationHost)
-			}
-		}()
-	}
+	// Establish and manage the persistent control session
+	go manageControlSession(remoteIP, key, cfg)
 
 	// Block main goroutine
 	select {}
@@ -397,7 +377,7 @@ func runProxyServer(cfg *config.Config) {
 	// This is important to avoid conflicts with the main client's transport
 	netDialer := &net.Dialer{
 		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
+		KeepAlive: 15 * time.Second, // More aggressive keep-alive
 	}
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
@@ -626,39 +606,124 @@ func getMuxSession(remoteIP string, port int, host string) (*smux.Session, error
 	return muxSession, nil
 }
 
-func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteIP string, key []byte, cfg *config.Config, target string) {
-	port := cfg.TunnelPort
-	if port == 0 {
-		port = 443
+func manageControlSession(remoteIP string, key []byte, cfg *config.Config) {
+	// This function will now be the heart of the client.
+	// It will maintain the connection and handle commands from the server.
+	for {
+		port := cfg.TunnelPort
+		if port == 0 {
+			port = 443
+		}
+
+		session, err := getMuxSession(remoteIP, port, cfg.RemoteHost)
+		if err != nil {
+			logger.Error.Printf("Failed to establish control session: %v. Retrying in 10s...", err)
+			time.Sleep(10 * time.Second)
+			continue
+		}
+
+		// Stream 0 is the control channel
+		controlStream, err := session.OpenStream()
+		if err != nil {
+			logger.Error.Printf("Failed to open control stream: %v. Retrying...", err)
+			session.Close()
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		// Register proxies with the server
+		registerProxies(controlStream, cfg.Proxies)
+
+		// Handle incoming commands from the server
+		handleServerCommands(session, cfg)
+
+		// If we exit, the session is likely dead, so we loop to reconnect.
+		controlStream.Close()
+		session.Close()
+		logger.Info.Println("Control session closed. Reconnecting...")
+		time.Sleep(5 * time.Second)
+	}
+}
+
+func registerProxies(stream *smux.Stream, proxies []config.ProxyConfig) {
+	payload := RegisterProxiesPayload{
+		Proxies: proxies,
 	}
 
-	session, err := getMuxSession(remoteIP, port, cfg.RemoteHost)
+	err := WriteControlMessage(stream, CmdRegisterProxies, payload)
 	if err != nil {
-		fmt.Printf("Failed to get mux session: %v\n", err)
-		localConn.Close()
+		logger.Error.Printf("Failed to send proxy registration to server: %v", err)
+		// We might want to close the stream or session here to trigger a reconnect.
 		return
 	}
 
-	stream, err := session.OpenStream()
-	if err != nil {
-		fmt.Printf("Failed to open mux stream: %v\n", err)
-		localConn.Close()
-		return
+	logger.Info.Printf("Successfully registered %d proxies with the server.", len(proxies))
+}
+
+func handleServerCommands(session *smux.Session, cfg *config.Config) {
+	// In this new model, the server initiates data streams.
+	// The client's job is to accept these streams and proxy them to the correct local service.
+	for {
+		stream, err := session.AcceptStream()
+		if err != nil {
+			logger.Error.Printf("Failed to accept data stream from server: %v", err)
+			// The session is likely dead, so we return to trigger a reconnect.
+			return
+		}
+
+		// The server will send the proxy name first.
+		header := make([]byte, 1)
+		_, err = io.ReadFull(stream, header)
+		if err != nil {
+			logger.Error.Printf("Failed to read proxy name header from data stream %d: %v", stream.ID(), err)
+			stream.Close()
+			continue
+		}
+
+		proxyNameLen := int(header[0])
+		proxyNameBytes := make([]byte, proxyNameLen)
+		_, err = io.ReadFull(stream, proxyNameBytes)
+		if err != nil {
+			logger.Error.Printf("Failed to read proxy name from data stream %d: %v", stream.ID(), err)
+			stream.Close()
+			continue
+		}
+
+		proxyName := string(proxyNameBytes)
+
+		// Find the corresponding proxy configuration.
+		var targetProxy *config.ProxyConfig
+		for _, p := range cfg.Proxies {
+			if p.Name == proxyName {
+				targetProxy = &p
+				break
+			}
+		}
+
+		if targetProxy == nil {
+			logger.Error.Printf("Server requested connection for unknown proxy '%s'.", proxyName)
+			stream.Close()
+			continue
+		}
+
+		// Spawn a goroutine to handle the proxying.
+		go handleProxyConnection(stream, targetProxy.LocalIP, targetProxy.LocalPort)
 	}
+}
+
+func handleProxyConnection(stream *smux.Stream, localIP string, localPort int) {
+	// This function will be called when the server commands us to open a new data channel.
 	defer stream.Close()
+
+	localAddr := fmt.Sprintf("%s:%d", localIP, localPort)
+	localConn, err := net.DialTimeout("tcp", localAddr, 10*time.Second)
+	if err != nil {
+		logger.Error.Printf("Failed to connect to local service at %s: %v", localAddr, err)
+		return
+	}
 	defer localConn.Close()
 
-	// Send destination header: [1 byte len][destination string]
-	destBytes := []byte(target)
-	header := []byte{byte(len(destBytes))}
-	_, err = stream.Write(header)
-	if err != nil {
-		return
-	}
-	_, err = stream.Write(destBytes)
-	if err != nil {
-		return
-	}
+	logger.Info.Printf("Proxying new connection for stream %d to %s", stream.ID(), localAddr)
 
 	// Tunnel data
 	done := make(chan struct{})
@@ -673,4 +738,5 @@ func handleClientConnection(localConn net.Conn, httpClient *http.Client, remoteI
 	}()
 
 	<-done
+	logger.Info.Printf("Proxy connection for stream %d to %s closed.", stream.ID(), localAddr)
 }

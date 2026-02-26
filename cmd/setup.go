@@ -253,19 +253,52 @@ func setupInternal() {
 		}
 	}
 
-	fmt.Print("Enter Local Port to listen on (e.g., 8080): ")
-	localPortStr, _ := reader.ReadString('\n')
-	localPortStr = strings.TrimSpace(localPortStr)
-	if localPortStr != "" {
-		p, _ := strconv.Atoi(localPortStr)
-		cfg.LocalPort = p
-	}
+	// Configure proxies
+	cfg.Proxies = []config.ProxyConfig{}
+	for {
+		fmt.Print("\n--- Add a New Proxy Forwarding Rule ---\n")
 
-	fmt.Print("Enter Remote Destination (e.g., 127.0.0.1:80): ")
-	destStr, _ := reader.ReadString('\n')
-	destStr = strings.TrimSpace(destStr)
-	if destStr != "" {
-		cfg.DestinationHost = destStr
+		fmt.Print("Proxy Name (e.g., 'ssh-service', 'web-app'): ")
+		proxyName, _ := reader.ReadString('\n')
+		proxyName = strings.TrimSpace(proxyName)
+
+		fmt.Print("Remote Port (public port on the external server): ")
+		remotePortStr, _ := reader.ReadString('\n')
+		remotePort, err := strconv.Atoi(strings.TrimSpace(remotePortStr))
+		if err != nil {
+			fmt.Println("Invalid port number.")
+			continue
+		}
+
+		fmt.Print("Local IP (IP of the service on your local network, default 127.0.0.1): ")
+		localIP, _ := reader.ReadString('\n')
+		localIP = strings.TrimSpace(localIP)
+		if localIP == "" {
+			localIP = "127.0.0.1"
+		}
+
+		fmt.Print("Local Port (port of the local service): ")
+		localPortStr, _ := reader.ReadString('\n')
+		localPort, err := strconv.Atoi(strings.TrimSpace(localPortStr))
+		if err != nil {
+			fmt.Println("Invalid port number.")
+			continue
+		}
+
+		newProxy := config.ProxyConfig{
+			Name:       proxyName,
+			Type:       "tcp", // For now, we only support TCP in the setup
+			RemotePort: remotePort,
+			LocalIP:    localIP,
+			LocalPort:  localPort,
+		}
+		cfg.Proxies = append(cfg.Proxies, newProxy)
+
+		fmt.Print("Add another proxy? (y/N): ")
+		another, _ := reader.ReadString('\n')
+		if strings.TrimSpace(strings.ToLower(another)) != "y" {
+			break
+		}
 	}
 
 	if err := config.SaveConfig(cfg); err != nil {
