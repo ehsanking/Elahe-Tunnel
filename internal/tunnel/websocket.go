@@ -74,7 +74,9 @@ func DialWebSocket(url string, host string) (*smux.Session, error) {
 	header := http.Header{}
 	header.Set("Host", host)
 	header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	header.Set("Sec-WebSocket-Protocol", "elahe-tunnel")
+	header.Set("Origin", "https://www.google.com")
+	header.Set("Cookie", "NID=elahe-tunnel") // Simple auth for now, can be encrypted later
+	// Removed Sec-WebSocket-Protocol as it's a dead giveaway
 
 	conn, _, err := dialer.Dial(url, header)
 	if err != nil {

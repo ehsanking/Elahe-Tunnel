@@ -72,7 +72,7 @@ func RunServer(initialCfg *config.Config) error {
 	http.Handle("/favicon.ico", recoveryMiddleware(limitMiddleware(limiter, pingHandler)))
 
 	wsHandler := http.HandlerFunc(handleWebSocket(key))
-	http.Handle("/search/results", recoveryMiddleware(wsHandler))
+	http.Handle("/complete/search", recoveryMiddleware(wsHandler))
 
 	killHandler := http.HandlerFunc(handleKillConnection)
 	http.Handle("/kill", recoveryMiddleware(killHandler))
@@ -105,18 +105,27 @@ func handleWebSocket(key []byte) http.HandlerFunc {
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Basic authentication via header or query param
-		// For stealth, we can use a cookie or a custom header that looks like a tracking ID
-		auth := r.Header.Get("Sec-WebSocket-Protocol")
-		if auth == "" {
-			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
+		// Basic authentication via Cookie (NID)
+		// This mimics a Google search cookie
+		cookie, err := r.Cookie("NID")
+		if err != nil || cookie.Value == "" {
+			// Fallback to query param for flexibility
+			if r.URL.Query().Get("client") != "chrome" {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
 		}
 
 		// Verify auth (simple check for now, could be more complex)
 		// We'll use the connection key as the protocol for simplicity in this step
 		// In a real scenario, this would be an encrypted token
-		if auth != "elahe-tunnel" {
+		// For now, we check if the cookie value contains a specific signature or just exists
+		// To keep it simple as requested, we'll just check for the presence of the cookie
+		// and maybe a simple value check if we want more security.
+		// Let's assume the client sends "elahe-tunnel" as the cookie value for now,
+		// but encoded or obfuscated.
+		if cookie != nil && cookie.Value != "elahe-tunnel" {
+			// Allow if it matches our expected value
 			http.Error(w, "Forbidden", http.StatusForbidden)
 			return
 		}

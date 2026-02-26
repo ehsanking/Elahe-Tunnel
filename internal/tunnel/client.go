@@ -596,7 +596,8 @@ func getMuxSession(remoteIP string, port int, host string) (*smux.Session, error
 		return muxSession, nil
 	}
 
-	url := fmt.Sprintf("wss://%s:%d/search/results", remoteIP, port)
+	// Use a more realistic path for a persistent connection
+	url := fmt.Sprintf("wss://%s:%d/complete/search?client=chrome&q=tunnel", remoteIP, port)
 	session, err := DialWebSocket(url, host)
 	if err != nil {
 		return nil, err
